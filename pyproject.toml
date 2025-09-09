@@ -1,0 +1,163 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fiberwatch"
+version = "0.1.0"
+description = "Professional OTDR event detection and analysis system for fiber optic networks"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "FiberWatch Team", email = "team@fiberwatch.dev"}
+]
+maintainers = [
+    {name = "FiberWatch Team", email = "team@fiberwatch.dev"}
+]
+keywords = ["otdr", "fiber", "optic", "analysis", "detection", "telecommunications"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Telecommunications Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: System :: Networking",
+]
+
+dependencies = [
+    "numpy>=1.22.0",
+    "scipy>=1.8.0", 
+    "matplotlib>=3.5.0",
+    "pandas>=1.4.0",
+    "streamlit>=1.29.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/fiberwatch/fiberwatch"
+Documentation = "https://fiberwatch.readthedocs.io"
+Repository = "https://github.com/fiberwatch/fiberwatch"
+"Bug Tracker" = "https://github.com/fiberwatch/fiberwatch/issues"
+Changelog = "https://github.com/fiberwatch/fiberwatch/blob/main/CHANGELOG.md"
+
+[project.scripts]
+fiberwatch = "fiberwatch.scripts.cli:main"
+fiberwatch-analyze = "fiberwatch.scripts.analyze:main"
+fiberwatch-visualize = "fiberwatch.scripts.visualize:main"
+fiberwatch-web = "fiberwatch.web.app:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=22.0",
+    "isort>=5.0",
+    "flake8>=5.0",
+    "mypy>=0.991",
+    "pre-commit>=2.20",
+]
+docs = [
+    "sphinx>=5.0",
+    "sphinx-rtd-theme>=1.0",
+    "myst-parser>=0.18",
+]
+test = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-xdist>=2.5",
+]
+
+[tool.setuptools.packages.find]
+include = ["fiberwatch*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+fiberwatch = ["config/*.json", "web/static/*"]
+
+# Development tools configuration
+[tool.black]
+line-length = 88
+target-version = ['py39']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 88
+known_first_party = ["fiberwatch"]
+sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "scipy.*",
+    "matplotlib.*",
+    "streamlit.*",
+    "pandas.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+[tool.coverage.run]
+source = ["fiberwatch"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
