@@ -22,6 +22,7 @@ def run_visualization(
     distance_km: float = 20.0,
     save_plots: bool = True,
     config=None,
+    sample_rate_per_km: float | None = None,
 ):
     """
     Run OTDR visualization on input data file.
@@ -91,10 +92,15 @@ def run_visualization(
     # Run detection
     print("Running event detection...")
     detector = Detector(
-        distance_km=distance_axis, baseline=baseline_data, config=detector_config
+        distance_km=distance_axis,
+        baseline=baseline_data,
+        config=detector_config,
+        sample_rate_per_km=sample_rate_per_km,
     )
 
-    result = detector.detect(test_data)
+    result = detector.detect(
+        test_data, sample_rate_per_km=sample_rate_per_km
+    )
     print(f"Detected {len(result.events)} raw events")
 
     # Cluster events
@@ -174,6 +180,11 @@ def main():
     parser.add_argument(
         "--no-save", action="store_true", help="Don't save plots to files"
     )
+    parser.add_argument(
+        "--sample-rate-per-km",
+        type=float,
+        help="Sampling rate expressed as samples per kilometer",
+    )
 
     args = parser.parse_args()
 
@@ -184,6 +195,7 @@ def main():
             output_dir=args.output,
             distance_km=args.distance,
             save_plots=not args.no_save,
+            sample_rate_per_km=args.sample_rate_per_km,
         )
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
