@@ -56,6 +56,11 @@ def main(argv: list[str] | None = None) -> None:
         default=20.0,
         help="Total fiber length in km for distance axis construction",
     )
+    parser.add_argument(
+        "--sample-rate-per-km",
+        type=float,
+        help="Sampling rate expressed as samples per kilometer",
+    )
     args = parser.parse_args(argv)
 
     dataset_root = args.dataset_root
@@ -75,6 +80,7 @@ def main(argv: list[str] | None = None) -> None:
         label_map=DEFAULT_LABEL_MAP,
         skip_labels=SKIP_LABELS,
         baseline_path=baseline_file,
+        sample_rate_per_km=args.sample_rate_per_km,
     )
 
     print(f"Processed files: {result.total_files}")

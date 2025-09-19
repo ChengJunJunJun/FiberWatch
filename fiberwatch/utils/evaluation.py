@@ -60,6 +60,7 @@ def evaluate_detector_on_dataset(
     label_map: Mapping[str, Sequence[str] | set[str]] | None = None,
     skip_labels: Iterable[str] | None = None,
     baseline_path: str | Path | None = None,
+    sample_rate_per_km: float | None = None,
 ) -> DatasetEvaluation:
     """Evaluate detector accuracy on a labeled dataset directory.
 
@@ -115,6 +116,16 @@ def evaluate_detector_on_dataset(
             try:
                 trace = load_test_data(trace_path)
                 distance_axis = create_distance_axis(len(trace), total_distance_km)
+
+                # Determine sampling rate for this trace
+                if sample_rate_per_km and sample_rate_per_km > 0:
+                    effective_rate = float(sample_rate_per_km)
+                elif total_distance_km > 0:
+                    effective_rate = len(trace) / float(total_distance_km)
+                else:
+                    effective_rate = None
+
+                baseline = None
                 if baseline_trace is not None:
                     baseline = baseline_trace
                     if len(baseline) != len(trace):
@@ -123,14 +134,18 @@ def evaluate_detector_on_dataset(
                             baseline_distance,
                             baseline,
                         )
-                    detector = Detector(
-                        distance_km=distance_axis,
-                        baseline=baseline,
-                        config=config,
-                    )
-                else:
-                    detector = Detector(distance_km=distance_axis, config=config)
-                detection = detector.detect(trace)
+
+                detector = Detector(
+                    distance_km=distance_axis,
+                    baseline=baseline,
+                    config=config,
+                    sample_rate_per_km=effective_rate,
+                )
+
+                detection = detector.detect(
+                    trace,
+                    sample_rate_per_km=effective_rate,
+                )
                 predicted = {event.kind for event in detection.events}
                 if expected:
                     is_correct = any(kind in predicted for kind in expected)

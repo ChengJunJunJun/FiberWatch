@@ -5,6 +5,8 @@ This script provides command-line analysis of OTDR data files
 with event detection and results export.
 """
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 from typing import Optional
@@ -21,6 +23,7 @@ def run_analysis(
     distance_km: float = 20.0,
     output_format: str = "csv",
     config=None,
+    sample_rate_per_km: float | None = None,
 ):
     """
     Run OTDR analysis on input data file.
@@ -86,11 +89,23 @@ def run_analysis(
 
     # Run detection
     print("Running event detection...")
+    computed_rate = None
+    if sample_rate_per_km and sample_rate_per_km > 0:
+        computed_rate = float(sample_rate_per_km)
+    elif distance_km > 0:
+        computed_rate = len(test_data) / float(distance_km)
+
     detector = Detector(
-        distance_km=distance_axis, baseline=baseline_data, config=detector_config
+        distance_km=distance_axis,
+        baseline=baseline_data,
+        config=detector_config,
+        sample_rate_per_km=computed_rate,
     )
 
-    result = detector.detect(test_data)
+    result = detector.detect(
+        test_data,
+        sample_rate_per_km=computed_rate,
+    )
     print(f"Detected {len(result.events)} raw events")
 
     # Cluster events
@@ -182,6 +197,11 @@ def main():
     parser.add_argument(
         "--format", choices=["csv", "json"], default="csv", help="Output format"
     )
+    parser.add_argument(
+        "--sample-rate-per-km",
+        type=float,
+        help="Sampling rate expressed as samples per kilometer",
+    )
 
     args = parser.parse_args()
 
@@ -192,6 +212,7 @@ def main():
             output_dir=args.output,
             distance_km=args.distance,
             output_format=args.format,
+            sample_rate_per_km=args.sample_rate_per_km,
         )
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
