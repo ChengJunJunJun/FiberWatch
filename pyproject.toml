@@ -51,6 +51,7 @@ Changelog = "https://github.com/fiberwatch/fiberwatch/blob/main/CHANGELOG.md"
 fiberwatch = "fiberwatch.scripts.cli:main"
 fiberwatch-analyze = "fiberwatch.scripts.analyze:main"
 fiberwatch-visualize = "fiberwatch.scripts.visualize:main"
+fiberwatch-evaluate ="fiberwatch.scripts.evaluate_dataset:main"
 fiberwatch-web = "fiberwatch.web.app:main"
 
 [project.optional-dependencies]

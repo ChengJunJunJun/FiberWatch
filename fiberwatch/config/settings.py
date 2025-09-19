@@ -27,33 +27,34 @@ class DetectionConfig:
     min_event_separation: int = 30
 
     # Break detection parameters
-    pre_window: int = 120
-    pre_end_offset: int = 10
-    tail_start_offset: int = 20
-    tail_end_offset: int = 220
+    pre_window_km: float = 0.30
+    pre_end_offset_km: float = 0.025
+    tail_start_offset_km: float = 0.05
+    tail_end_offset_km: float = 0.55
     min_signal_drop_db: float = 5.0
     noise_floor_db: float = -80.0
     min_noise_increase: float = 1.5
     min_zero_crossing_ratio: float = 0.05
-    min_tail_segment_len: int = 30
+    min_tail_segment_len_km: float = 0.075
     grad_sigma_factor: float = 3.0
     min_grad_abs: float = 0.005
 
     # Dirty connector detection
     dirty_grad_sigma_factor: float = 6.0
     min_dirty_grad_abs: float = 0.001
-    step_window: int = 60
+    step_window_km: float = 0.15
     dirty_min_step_db: float = 1.5
     dirty_exclusion_before_break_km: float = 0.5
+    dirty_duplicate_skip_km: float = 0.025
 
     # Bend detection
     bend_grad_sigma_factor: float = 2.0
     min_bend_grad_abs: float = 0.0005
-    bend_pair_max_gap: int = 50
+    bend_pair_max_gap_km: float = 0.125
     bend_min_step_db: float = 0.05
     bend_max_step_db: float = 1.2
-    bend_step_window: int = 30
-    bend_min_descent_len: int = 10
+    bend_step_window_km: float = 0.075
+    bend_min_descent_len_km: float = 0.05
     bend_dirty_exclusion_km: float = 0.5
 
     # Event clustering
@@ -71,6 +72,18 @@ class DetectionConfig:
             raise ValueError("step_min_db must be positive")
         if self.min_event_separation <= 0:
             raise ValueError("min_event_separation must be positive")
+        if self.pre_window_km <= 0:
+            raise ValueError("pre_window_km must be positive")
+        if self.tail_end_offset_km <= self.tail_start_offset_km:
+            raise ValueError("tail_end_offset_km must exceed tail_start_offset_km")
+        if self.min_tail_segment_len_km <= 0:
+            raise ValueError("min_tail_segment_len_km must be positive")
+        if self.step_window_km <= 0:
+            raise ValueError("step_window_km must be positive")
+        if self.dirty_duplicate_skip_km <= 0:
+            raise ValueError("dirty_duplicate_skip_km must be positive")
+        if self.bend_min_descent_len_km <= 0:
+            raise ValueError("bend_min_descent_len_km must be positive")
 
 
 @dataclass
