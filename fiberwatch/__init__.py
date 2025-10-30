@@ -1,5 +1,5 @@
 """
-FiberWatch - OTDR Event Detection System
+FiberWatch - OTDR Event Detection System.
 
 A professional optical time-domain reflectometry (OTDR) analysis toolkit
 for detecting and analyzing fiber optic events including breaks, dirty connectors,
@@ -13,17 +13,17 @@ Main modules:
 """
 
 __version__ = "0.1.0"
-__author__ = "FiberWatch Team"
+__author__ = "Jun Cheng,Yuxuan Chen"
 __description__ = "OTDR Event Detection System"
 
-from .core import Detector, DetectionResult, DetectedEvent, DetectorConfig
+from .core import DetectedEvent, DetectionResult, Detector, DetectorConfig
 
 __all__ = [
-    "Detector",
-    "DetectionResult",
     "DetectedEvent",
+    "DetectionResult",
+    "Detector",
     "DetectorConfig",
-    "__version__",
     "__author__",
     "__description__",
+    "__version__",
 ]

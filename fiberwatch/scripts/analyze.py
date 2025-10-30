@@ -11,9 +11,13 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from ..core import Detector, DetectorConfig
-from ..utils.data_io import load_test_data, create_distance_axis, save_detection_results
-from ..utils.event_processing import cluster_events, get_event_statistics
+from fiberwatch.core import Detector, DetectorConfig
+from fiberwatch.utils.data_io import (
+    create_distance_axis,
+    load_test_data,
+    save_detection_results,
+)
+from fiberwatch.utils.event_processing import cluster_events, get_event_statistics
 
 
 def run_analysis(
@@ -35,8 +39,9 @@ def run_analysis(
         distance_km: Fiber length in kilometers
         output_format: Output format for results ('csv' or 'json')
         config: Application configuration
+
     """
-    print(f"FiberWatch OTDR Analysis")
+    print("FiberWatch OTDR Analysis")
     print(f"Input file: {input_file}")
     print(f"Fiber length: {distance_km} km")
 
@@ -67,10 +72,10 @@ def run_analysis(
                 import numpy as np
 
                 baseline_distance = create_distance_axis(
-                    len(baseline_data), distance_km
+                    len(baseline_data), distance_km,
                 )
                 baseline_data = np.interp(
-                    distance_axis, baseline_distance, baseline_data
+                    distance_axis, baseline_distance, baseline_data,
                 )
                 print("Baseline interpolated to match test data length")
         else:
@@ -115,7 +120,7 @@ def run_analysis(
         cluster_distance = 5.0
 
     clustered_events = cluster_events(
-        result.events, distance_threshold_m=cluster_distance
+        result.events, distance_threshold_m=cluster_distance,
     )
     print(f"After clustering: {len(clustered_events)} events")
 
@@ -140,7 +145,7 @@ def _print_analysis_summary(events, total_distance_km):
         print("\n✅ No events detected - fiber appears to be in good condition!")
         return
 
-    print(f"\n📊 Analysis Summary:")
+    print("\n📊 Analysis Summary:")
     print(f"{'=' * 60}")
     print(f"Total fiber length: {total_distance_km:.1f} km")
     print(f"Events detected: {len(events)}")
@@ -150,20 +155,20 @@ def _print_analysis_summary(events, total_distance_km):
     for event in events:
         event_types[event.kind] = event_types.get(event.kind, 0) + 1
 
-    print(f"\nEvent breakdown:")
+    print("\nEvent breakdown:")
     for event_type, count in sorted(event_types.items()):
         print(f"  {event_type}: {count}")
 
-    print(f"\nDetailed events:")
+    print("\nDetailed events:")
     print(
-        f"{'Type':<15} {'Position (km)':<12} {'Position (m)':<12} {'Loss (dB)':<10} {'Reflection (dB)':<15}"
+        f"{'Type':<15} {'Position (km)':<12} {'Position (m)':<12} {'Loss (dB)':<10} {'Reflection (dB)':<15}",
     )
     print(f"{'-' * 75}")
 
     for event in sorted(events, key=lambda e: e.z_km):
         position_m = event.z_km * 1000
         print(
-            f"{event.kind:<15} {event.z_km:<12.3f} {position_m:<12.1f} {event.magnitude_db:<10.3f} {event.reflect_db:<15.3f}"
+            f"{event.kind:<15} {event.z_km:<12.3f} {position_m:<12.1f} {event.magnitude_db:<10.3f} {event.reflect_db:<15.3f}",
         )
 
     # Find critical events
@@ -171,13 +176,13 @@ def _print_analysis_summary(events, total_distance_km):
     if breaks:
         break_pos = breaks[0].z_km
         print(
-            f"\n⚠️  CRITICAL: Fiber break detected at {break_pos:.3f} km ({break_pos * 1000:.1f} m)"
+            f"\n⚠️  CRITICAL: Fiber break detected at {break_pos:.3f} km ({break_pos * 1000:.1f} m)",
         )
 
     dirty_connectors = [e for e in events if e.kind == "dirty_connector"]
     if dirty_connectors:
         print(
-            f"\n🔧 MAINTENANCE: {len(dirty_connectors)} dirty connector(s) require cleaning"
+            f"\n🔧 MAINTENANCE: {len(dirty_connectors)} dirty connector(s) require cleaning",
         )
 
 
@@ -186,16 +191,16 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="FiberWatch OTDR Analysis")
-    parser.add_argument("input_file", type=Path, help="Input OTDR data file")
+    parser.add_argument("--input_file", type=Path, help="Input OTDR data file")
     parser.add_argument("--baseline", type=Path, help="Baseline reference file")
     parser.add_argument(
-        "--output", "-o", type=Path, default="output", help="Output directory"
+        "--output", "-o", type=Path, default="output", help="Output directory",
     )
     parser.add_argument(
-        "--distance", type=float, default=20.0, help="Fiber length in km"
+        "--distance", type=float, default=20.0, help="Fiber length in km",
     )
     parser.add_argument(
-        "--format", choices=["csv", "json"], default="csv", help="Output format"
+        "--format", choices=["csv", "json"], default="csv", help="Output format",
     )
     parser.add_argument(
         "--sample-rate-per-km",

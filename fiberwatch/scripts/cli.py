@@ -9,7 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from ..config import get_default_config, load_config
+from fiberwatch.config import get_default_config, load_config
 
 
 def main():
@@ -19,11 +19,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s analyze data/test.txt --output results/
-  %(prog)s visualize data/test.txt --baseline data/baseline.txt
-  %(prog)s web
-  %(prog)s --version
-        """,
+    %(prog)s analyze data/test.txt --output results/
+    %(prog)s visualize data/test.txt --baseline data/baseline.txt
+    %(prog)s web
+    %(prog)s --version
+            """,
     )
 
     parser.add_argument("--version", action="version", version="FiberWatch 0.1.0")
@@ -34,7 +34,9 @@ Examples:
 
     # Subcommands
     subparsers = parser.add_subparsers(
-        dest="command", help="Available commands", metavar="COMMAND"
+        dest="command",
+        help="Available commands",
+        metavar="COMMAND",
     )
 
     # Analyze command
@@ -101,7 +103,7 @@ Examples:
 
 def _add_analyze_args(parser):
     """Add arguments for analyze command."""
-    parser.add_argument("input_file", type=Path, help="Input OTDR data file")
+    parser.add_argument("--input_file", type=Path, help="Input OTDR data file")
 
     parser.add_argument("--baseline", type=Path, help="Baseline reference file")
 
@@ -130,7 +132,7 @@ def _add_analyze_args(parser):
 
 def _add_visualize_args(parser):
     """Add arguments for visualize command."""
-    parser.add_argument("input_file", type=Path, help="Input OTDR data file")
+    parser.add_argument("--input_file", type=Path, help="Input OTDR data file")
 
     parser.add_argument("--baseline", type=Path, help="Baseline reference file")
 
@@ -150,7 +152,7 @@ def _add_visualize_args(parser):
     )
 
     parser.add_argument(
-        "--no-save", action="store_true", help="Don't save plots to files"
+        "--no-save", action="store_true", help="Don't save plots to files",
     )
 
 

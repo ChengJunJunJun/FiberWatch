@@ -5,19 +5,28 @@ This script provides command-line visualization of OTDR data
 with comprehensive analysis plots.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fiberwatch.core.detector import DetectedEvent
+
+import argparse
 import sys
 from pathlib import Path
-from typing import Optional
 
-from ..core import Detector, DetectorConfig
-from ..utils.data_io import load_test_data, create_distance_axis
-from ..utils.event_processing import cluster_events
-from ..utils.visualization import save_all_plots
+import numpy as np
+
+from fiberwatch.core import Detector, DetectorConfig
+from fiberwatch.utils.data_io import create_distance_axis, load_test_data
+from fiberwatch.utils.event_processing import cluster_events
+from fiberwatch.utils.visualization import save_all_plots
 
 
 def run_visualization(
     input_file: Path,
-    baseline_file: Optional[Path] = None,
+    baseline_file: Path | None = None,
     output_dir: Path = Path("output"),
     distance_km: float = 20.0,
     save_plots: bool = True,
@@ -34,8 +43,9 @@ def run_visualization(
         distance_km: Fiber length in kilometers
         save_plots: Whether to save plots to files
         config: Application configuration
+
     """
-    print(f"FiberWatch OTDR Visualization")
+    print("FiberWatch OTDR Visualization")
     print(f"Input file: {input_file}")
     print(f"Fiber length: {distance_km} km")
 
@@ -66,13 +76,14 @@ def run_visualization(
 
             # Interpolate baseline to match test data length if needed
             if len(baseline_data) != len(test_data):
-                import numpy as np
-
                 baseline_distance = create_distance_axis(
-                    len(baseline_data), distance_km
+                    len(baseline_data),
+                    distance_km,
                 )
                 baseline_data = np.interp(
-                    distance_axis, baseline_distance, baseline_data
+                    distance_axis,
+                    baseline_distance,
+                    baseline_data,
                 )
                 print("Baseline interpolated to match test data length")
         else:
@@ -98,19 +109,15 @@ def run_visualization(
         sample_rate_per_km=sample_rate_per_km,
     )
 
-    result = detector.detect(
-        test_data, sample_rate_per_km=sample_rate_per_km
-    )
+    result = detector.detect(test_data, sample_rate_per_km=sample_rate_per_km)
     print(f"Detected {len(result.events)} raw events")
 
     # Cluster events
-    if config:
-        cluster_distance = config.detection.distance_cluster_m
-    else:
-        cluster_distance = 5.0
+    cluster_distance = config.detection.distance_cluster_m if config else 5.0
 
     clustered_events = cluster_events(
-        result.events, distance_threshold_m=cluster_distance
+        result.events,
+        distance_threshold_m=cluster_distance,
     )
     print(f"After clustering: {len(clustered_events)} events")
 
@@ -128,7 +135,7 @@ def run_visualization(
             reference_provided=baseline_provided,
         )
 
-        print(f"\nVisualization complete!")
+        print("\nVisualization complete!")
         print(f"Saved {len(saved_files)} plots to: {output_dir}")
         for file_path in saved_files:
             print(f"  • {file_path.name}")
@@ -146,39 +153,46 @@ def run_visualization(
     }
 
 
-def _print_event_summary(events):
+def _print_event_summary(events: list[DetectedEvent]) -> None:
     """Print summary of detected events."""
     if not events:
         print("\n✅ No events detected - fiber appears to be in good condition!")
         return
 
-    print(f"\n📊 Event Summary:")
+    print("\n📊 Event Summary:")
     print(
-        f"{'Type':<15} {'Position (km)':<12} {'Loss (dB)':<10} {'Reflection (dB)':<15}"
+        f"{'Type':<15} {'Position (km)':<12} {'Loss (dB)':<10} {'Reflection (dB)':<15}",
     )
     print(f"{'-' * 60}")
 
     for event in sorted(events, key=lambda e: e.z_km):
         print(
-            f"{event.kind:<15} {event.z_km:<12.3f} {event.magnitude_db:<10.3f} {event.reflect_db:<15.3f}"
+            f"{event.kind:<15} {event.z_km:<12.3f} {event.magnitude_db:<10.3f} {event.reflect_db:<15.3f}",
         )
 
 
 def main():
     """Main entry point for standalone execution."""
-    import argparse
-
     parser = argparse.ArgumentParser(description="FiberWatch OTDR Visualization")
-    parser.add_argument("input_file", type=Path, help="Input OTDR data file")
+    parser.add_argument("--input_file", type=Path, help="Input OTDR data file")
     parser.add_argument("--baseline", type=Path, help="Baseline reference file")
     parser.add_argument(
-        "--output", "-o", type=Path, default="output", help="Output directory"
+        "--output",
+        "-o",
+        type=Path,
+        default="output",
+        help="Output directory",
     )
     parser.add_argument(
-        "--distance", type=float, default=20.0, help="Fiber length in km"
+        "--distance",
+        type=float,
+        default=20.0,
+        help="Fiber length in km",
     )
     parser.add_argument(
-        "--no-save", action="store_true", help="Don't save plots to files"
+        "--no-save",
+        action="store_true",
+        help="Don't save plots to files",
     )
     parser.add_argument(
         "--sample-rate-per-km",
