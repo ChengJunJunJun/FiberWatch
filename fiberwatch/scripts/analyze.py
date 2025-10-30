@@ -7,9 +7,12 @@ with event detection and results export.
 
 from __future__ import annotations
 
-import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fiberwatch.core.detector import DetectedEvent
+
 from pathlib import Path
-from typing import Optional
 
 from fiberwatch.core import Detector, DetectorConfig
 from fiberwatch.utils.data_io import (
@@ -22,11 +25,11 @@ from fiberwatch.utils.event_processing import cluster_events, get_event_statisti
 
 def run_analysis(
     input_file: Path,
-    baseline_file: Optional[Path] = None,
+    baseline_file: Path | None = None,
     output_dir: Path = Path("output"),
     distance_km: float = 20.0,
     output_format: str = "csv",
-    config=None,
+    config: DetectorConfig | None = None,
     sample_rate_per_km: float | None = None,
 ):
     """
@@ -72,10 +75,13 @@ def run_analysis(
                 import numpy as np
 
                 baseline_distance = create_distance_axis(
-                    len(baseline_data), distance_km,
+                    len(baseline_data),
+                    distance_km,
                 )
                 baseline_data = np.interp(
-                    distance_axis, baseline_distance, baseline_data,
+                    distance_axis,
+                    baseline_distance,
+                    baseline_data,
                 )
                 print("Baseline interpolated to match test data length")
         else:
@@ -114,13 +120,11 @@ def run_analysis(
     print(f"Detected {len(result.events)} raw events")
 
     # Cluster events
-    if config:
-        cluster_distance = config.detection.distance_cluster_m
-    else:
-        cluster_distance = 5.0
+    cluster_distance = config.detection.distance_cluster_m if config else 5.0
 
     clustered_events = cluster_events(
-        result.events, distance_threshold_m=cluster_distance,
+        result.events,
+        distance_threshold_m=cluster_distance,
     )
     print(f"After clustering: {len(clustered_events)} events")
 
@@ -139,7 +143,9 @@ def run_analysis(
     }
 
 
-def _print_analysis_summary(events, total_distance_km):
+def _print_analysis_summary(
+    events: list[DetectedEvent], total_distance_km: float
+) -> None:
     """Print summary of analysis results."""
     if not events:
         print("\n✅ No events detected - fiber appears to be in good condition!")
@@ -194,13 +200,23 @@ def main():
     parser.add_argument("--input_file", type=Path, help="Input OTDR data file")
     parser.add_argument("--baseline", type=Path, help="Baseline reference file")
     parser.add_argument(
-        "--output", "-o", type=Path, default="output", help="Output directory",
+        "--output",
+        "-o",
+        type=Path,
+        default="output",
+        help="Output directory",
     )
     parser.add_argument(
-        "--distance", type=float, default=20.0, help="Fiber length in km",
+        "--distance",
+        type=float,
+        default=20.0,
+        help="Fiber length in km",
     )
     parser.add_argument(
-        "--format", choices=["csv", "json"], default="csv", help="Output format",
+        "--format",
+        choices=["csv", "json"],
+        default="csv",
+        help="Output format",
     )
     parser.add_argument(
         "--sample-rate-per-km",
@@ -210,18 +226,14 @@ def main():
 
     args = parser.parse_args()
 
-    try:
-        run_analysis(
-            input_file=args.input_file,
-            baseline_file=args.baseline,
-            output_dir=args.output,
-            distance_km=args.distance,
-            output_format=args.format,
-            sample_rate_per_km=args.sample_rate_per_km,
-        )
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+    run_analysis(
+        input_file=args.input_file,
+        baseline_file=args.baseline,
+        output_dir=args.output,
+        distance_km=args.distance,
+        output_format=args.format,
+        sample_rate_per_km=args.sample_rate_per_km,
+    )
 
 
 if __name__ == "__main__":

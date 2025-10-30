@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from fiberwatch.core.detector import DetectedEvent
 
 import argparse
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -30,7 +29,7 @@ def run_visualization(
     output_dir: Path = Path("output"),
     distance_km: float = 20.0,
     save_plots: bool = True,
-    config=None,
+    config: DetectorConfig | None = None,
     sample_rate_per_km: float | None = None,
 ):
     """
@@ -202,18 +201,14 @@ def main():
 
     args = parser.parse_args()
 
-    try:
-        run_visualization(
-            input_file=args.input_file,
-            baseline_file=args.baseline,
-            output_dir=args.output,
-            distance_km=args.distance,
-            save_plots=not args.no_save,
-            sample_rate_per_km=args.sample_rate_per_km,
-        )
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+    run_visualization(
+        input_file=args.input_file,
+        baseline_file=args.baseline,
+        output_dir=args.output,
+        distance_km=args.distance,
+        save_plots=not args.no_save,
+        sample_rate_per_km=args.sample_rate_per_km,
+    )
 
 
 if __name__ == "__main__":
