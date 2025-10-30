@@ -113,13 +113,21 @@ def _run_analysis(params: dict, config) -> dict:
         )
 
         # Run detection
+        sample_rate_per_km = None
+        if params["total_distance_km"] > 0:
+            sample_rate_per_km = test_data.size / float(params["total_distance_km"])
+
         detector = Detector(
             distance_km=distance_km,
             baseline=baseline_data,
             config=detector_config,
+            sample_rate_per_km=sample_rate_per_km,
         )
 
-        detection_result = detector.detect(test_data)
+        detection_result = detector.detect(
+            test_data,
+            sample_rate_per_km=sample_rate_per_km,
+        )
 
         # Cluster events
         clustered_events = cluster_events(

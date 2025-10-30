@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import math
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,22 +17,22 @@ class DetectorConfig:
     # Legacy parameters kept for API compatibility with older callers.
     # They are currently unused in the break-only detector.
     refl_min_db: float = 1.0
-    step_min_db: float = 0.1
+    step_min_db: float = 0.05
     slope_min_db_per_km: float = 0.05
     min_event_separation: int = 30
 
-    # Break detection windows (in samples)
-    pre_window: int = 120
-    pre_end_offset: int = 10
-    tail_start_offset: int = 20
-    tail_end_offset: int = 220
+    # Break detection windows (expressed as physical distances in km)
+    pre_window_km: float = 0.30
+    pre_end_offset_km: float = 0.025
+    tail_start_offset_km: float = 0.05
+    tail_end_offset_km: float = 0.55
 
     # Thresholds
     min_signal_drop_db: float = 5.0
     noise_floor_db: float = -80.0
     min_noise_increase: float = 1.5
     min_zero_crossing_ratio: float = 0.05  # proportion of sign flips in tail derivative
-    min_tail_segment_len: int = 30
+    min_tail_segment_len_km: float = 0.075
     # Derivative thresholding
     grad_sigma_factor: float = (
         3.0  # how many std devs below mean to consider a sharp drop
@@ -41,20 +42,43 @@ class DetectorConfig:
     # Dirty-connector detection
     dirty_grad_sigma_factor: float = 6.0  # stricter: large spikes only
     min_dirty_grad_abs: float = 0.001  # minimal |d(diff)|
-    step_window: int = 60  # samples for local step estimation 数字越大 检测越严格
+    step_window_km: float = 0.15  # physical window for local step estimation
     dirty_min_step_db: float = 1.5  # require large diff step for dirty connector
     dirty_exclusion_before_break_km: float = 0.5  # 断点处向前500m不检测脏连接器
+    dirty_duplicate_skip_km: float = 0.025  # 跳过重复脏连接器的最小间隔
 
     # Bend detection (two small steps newly appearing in test)
     bend_grad_sigma_factor: float = 2.0
     min_bend_grad_abs: float = 0.0005
-    bend_pair_max_gap: int = 50  # max samples between the two small steps
+    bend_pair_max_gap_km: float = 0.125  # max gap between paired steps (if used)
     bend_min_step_db: float = 0.05  # 越大越严格
     bend_max_step_db: float = 1.2
-    bend_step_window: int = 30  # 越小越严格
+    bend_step_window_km: float = 0.075  # 越小越严格
     # 连续下降检测相关参数
-    bend_min_descent_len: int = 10  # 连续负斜率的最小长度 采样点
+    bend_min_descent_len_km: float = 0.05  # 连续负斜率的最小长度
     bend_dirty_exclusion_km: float = 0.5  # 脏连接器±0.5km范围内不计入bend
+
+    def validate(self) -> None:
+        """Validate configuration values."""
+
+        if self.smooth_win <= 0 or self.smooth_win % 2 == 0:
+            raise ValueError("smooth_win must be positive and odd")
+        if self.smooth_poly <= 0:
+            raise ValueError("smooth_poly must be positive")
+        if self.refl_min_db <= 0:
+            raise ValueError("refl_min_db must be positive")
+        if self.step_min_db <= 0:
+            raise ValueError("step_min_db must be positive")
+        if self.pre_window_km <= 0:
+            raise ValueError("pre_window_km must be positive")
+        if self.tail_end_offset_km <= self.tail_start_offset_km:
+            raise ValueError("tail_end_offset_km must exceed tail_start_offset_km")
+        if self.min_tail_segment_len_km <= 0:
+            raise ValueError("min_tail_segment_len_km must be positive")
+        if self.step_window_km <= 0:
+            raise ValueError("step_window_km must be positive")
+        if self.bend_min_descent_len_km <= 0:
+            raise ValueError("bend_min_descent_len_km must be positive")
 
 
 @dataclass
@@ -116,22 +140,39 @@ class Detector:
     # Constants to avoid magic values
     MIN_WINDOW_SIZE = 5
     MIN_ARRAY_LENGTH = 2
-    MIN_DERIVATIVE_SAMPLES = 10
+    MIN_DERIVATIVE_SPAN_KM = 0.025
+    DEFAULT_MIN_DERIVATIVE_SAMPLES = 10
 
     def __init__(
         self,
         distance_km: np.ndarray,
         baseline: np.ndarray | None = None,
         config: DetectorConfig | None = None,
+        *,
+        sample_rate_per_km: float | None = None,
     ) -> None:
         if config is None:
             config = DetectorConfig()
         self.z = np.asarray(distance_km)
+        self.distance_km = self.z
         self.baseline = None if baseline is None else np.asarray(baseline)
         # ensure odd window length for SG filter
         self.smooth_win = int(max(5, config.smooth_win) // 2 * 2 + 1)
         self.smooth_poly = int(config.smooth_poly)
         self.cfg = config
+        self.config = config
+
+        if sample_rate_per_km and sample_rate_per_km > 0:
+            self.sample_rate_per_km: float | None = float(sample_rate_per_km)
+            spacing = self._sample_spacing_from_rate(self.sample_rate_per_km)
+        else:
+            self.sample_rate_per_km = None
+            spacing = self._infer_sample_spacing_from_distance()
+
+        if spacing <= 0:
+            spacing = 0.0
+
+        self._apply_sample_spacing(spacing)
 
     @staticmethod
     def _fit_linear_baseline(z: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -158,6 +199,78 @@ class Detector:
             mode="interp",
         )
 
+    @staticmethod
+    def _sample_spacing_from_rate(rate_per_km: float | None) -> float:
+        if rate_per_km is None or rate_per_km <= 0:
+            return 0.0
+        return 1.0 / float(rate_per_km)
+
+    def _infer_sample_spacing_from_distance(self) -> float:
+        if len(self.z) > 1:
+            diffs = np.diff(self.z)
+            diffs = diffs[np.isfinite(diffs) & (diffs > 0)]
+            if diffs.size:
+                return float(np.median(diffs))
+        return 0.0
+
+    def _apply_sample_spacing(self, spacing_km: float) -> None:
+        self.sample_spacing_km = float(spacing_km) if spacing_km > 0 else 0.0
+
+        cfg = self.cfg
+        self._pre_window_samples = self._samples_from_distance(cfg.pre_window_km)
+        self._pre_end_offset_samples = self._samples_from_distance(
+            cfg.pre_end_offset_km,
+            allow_zero=True,
+        )
+        self._tail_start_offset_samples = self._samples_from_distance(
+            cfg.tail_start_offset_km,
+            allow_zero=True,
+        )
+        self._tail_end_offset_samples = self._samples_from_distance(
+            cfg.tail_end_offset_km,
+            allow_zero=True,
+        )
+        if self._tail_end_offset_samples <= self._tail_start_offset_samples:
+            self._tail_end_offset_samples = self._tail_start_offset_samples + 1
+
+        self._min_tail_segment_samples = self._samples_from_distance(
+            cfg.min_tail_segment_len_km,
+        )
+        self._step_window_samples = self._samples_from_distance(
+            cfg.step_window_km,
+        )
+        self._bend_min_descent_samples = self._samples_from_distance(
+            cfg.bend_min_descent_len_km,
+        )
+        self._dirty_duplicate_skip_samples = max(
+            1,
+            self._samples_from_distance(
+                cfg.dirty_duplicate_skip_km,
+                allow_zero=True,
+            ),
+            self._step_window_samples // 2,
+        )
+        self._min_derivative_samples = self._samples_from_distance(
+            self.MIN_DERIVATIVE_SPAN_KM,
+            allow_zero=True,
+        )
+        if self._min_derivative_samples <= 0:
+            self._min_derivative_samples = self.DEFAULT_MIN_DERIVATIVE_SAMPLES
+
+    def _samples_from_distance(
+        self,
+        distance_km: float,
+        *,
+        allow_zero: bool = False,
+        min_samples: int = 1,
+    ) -> int:
+        if distance_km <= 0 or self.sample_spacing_km <= 0:
+            return 0 if allow_zero else min_samples
+        samples = int(math.ceil(distance_km / self.sample_spacing_km))
+        if allow_zero:
+            return max(0, samples)
+        return max(min_samples, samples)
+
     def _count_zero_crossings(self, x: np.ndarray) -> int:
         if len(x) < self.MIN_ARRAY_LENGTH:
             return 0
@@ -171,14 +284,16 @@ class Detector:
     def _detect_break(
         self,
         y_s: np.ndarray,
+        y_raw: np.ndarray,
         effective_end_index: int | None = None,
     ) -> list[DetectedEvent]:
         cfg = self.cfg
         dy = np.gradient(y_s)
+        dy_raw = np.gradient(y_raw)
         events: list[DetectedEvent] = []
 
         # Search region avoids last tail window to ensure post segment exists
-        default_end = max(0, len(y_s) - cfg.tail_end_offset - 1)
+        default_end = max(0, len(y_s) - self._tail_end_offset_samples - 1)
         search_end = (
             min(default_end, effective_end_index)
             if effective_end_index is not None
@@ -187,16 +302,16 @@ class Detector:
         best: DetectedEvent | None = None
         for i in range(search_end):
             # windows
-            pre_a = max(0, i - cfg.pre_window)
-            pre_b = max(pre_a, i - cfg.pre_end_offset)
-            tail_a = i + cfg.tail_start_offset
-            tail_b = i + cfg.tail_end_offset
+            pre_a = max(0, i - self._pre_window_samples)
+            pre_b = max(pre_a, i - self._pre_end_offset_samples)
+            tail_a = i + self._tail_start_offset_samples
+            tail_b = i + self._tail_end_offset_samples
 
             pre_segment = y_s[pre_a:pre_b]
             tail_segment = y_s[tail_a:tail_b]
             if (
-                len(pre_segment) < cfg.min_tail_segment_len
-                or len(tail_segment) < cfg.min_tail_segment_len
+                len(pre_segment) < self._min_tail_segment_samples
+                or len(tail_segment) < self._min_tail_segment_samples
             ):
                 continue
 
@@ -209,13 +324,13 @@ class Detector:
             noise_increase = tail_std / max(pre_std, 1e-3)
 
             # derivative sign-flip criterion in tail
-            dy_tail = dy[tail_a:tail_b]
+            dy_tail = dy_raw[tail_a:tail_b]
             zero_crossings = self._count_zero_crossings(dy_tail)
             zero_cross_ratio = zero_crossings / max(1, len(dy_tail))
 
             # dynamic derivative threshold using pre-window derivative stats
             dy_pre = dy[pre_a:pre_b]
-            if len(dy_pre) < self.MIN_DERIVATIVE_SAMPLES:
+            if len(dy_pre) < self._min_derivative_samples:  # 在这个判定下，前50m的故障点检测不到
                 continue
             dy_pre_std = float(np.std(dy_pre))
             grad_threshold = max(cfg.min_grad_abs, cfg.grad_sigma_factor * dy_pre_std)
@@ -297,19 +412,19 @@ class Detector:
             ):
                 # skip if near excluded indices (e.g., detected bends)
                 if exclude_indices and any(
-                    abs(i - j) <= max(10, self.cfg.step_window // 2)
+                    abs(i - j) <= self._dirty_duplicate_skip_samples
                     for j in exclude_indices
                 ):
                     i += 1
                     continue
                 # estimate local step on differential curve
-                a = max(0, i - cfg.step_window)
-                b = min(len(dd), i + cfg.step_window)
+                a = max(0, i - self._step_window_samples)
+                b = min(len(dd), i + self._step_window_samples)
                 mid = i
                 before = float(np.mean(diff_s[a:mid]))
                 after = float(np.mean(diff_s[mid:b]))
                 step_db = before - after
-                if abs(step_db) < cfg.dirty_min_step_db:
+                if abs(step_db) < cfg.dirty_min_step_db:#这个地方是不是不需要取绝对值，因为是尖峰而不是山谷
                     i += 1
                     continue
                 events.append(
@@ -323,85 +438,27 @@ class Detector:
                     ),
                 )
                 # skip a separation window to avoid duplicates
-                i += max(10, self.cfg.step_window // 2)
+                i += self._dirty_duplicate_skip_samples
                 continue
             i += 1
         return events
-
-    def _is_valid_bend(
-        self,
-        run_start: int,
-        drop_db: float,
-        dirty_positions_km: np.ndarray | None,
-    ) -> bool:
-        """Check if a descent segment qualifies as a valid bend."""
-        cfg = self.cfg
-        if not (cfg.bend_min_step_db <= drop_db <= cfg.bend_max_step_db):
-            return False
-        return dirty_positions_km is None or not np.any(
-            np.abs(self.z[run_start] - dirty_positions_km)
-            <= cfg.bend_dirty_exclusion_km,
-        )
-
-    def _create_bend_event(
-        self,
-        run_start: int,
-        run_len: int,
-        drop_db: float,
-    ) -> DetectedEvent:
-        """Create a bend event from descent parameters."""
-        return DetectedEvent(
-            kind="bend",
-            z_km=float(self.z[run_start + run_len // 2]),
-            magnitude_db=float(-drop_db),
-            reflect_db=0.0,
-            index=int(run_start),
-            extra={"descent_len": int(run_len)},
-        )
-
-    def _process_bend_run(
-        self,
-        run_start: int,
-        run_end: int,
-        resid_s: np.ndarray,
-        dirty_positions_km: np.ndarray | None,
-        events: list,
-    ) -> None:
-        """Process a completed descent run and add bend event if valid."""
-        cfg = self.cfg
-        run_len = run_end - run_start + 1
-        if run_len >= cfg.bend_min_descent_len:
-            drop_db = float(resid_s[run_start] - resid_s[run_end])
-            if self._is_valid_bend(run_start, drop_db, dirty_positions_km):
-                events.append(self._create_bend_event(run_start, run_len, drop_db))
-
+    
     def _detect_bends(
         self,
         y_s: np.ndarray,
         baseline: np.ndarray,
         break_index: int | None,
         effective_end_index: int | None,
-        *,
         exclude_indices: list[int] | None = None,
     ) -> list[DetectedEvent]:
-        """
-        Detect bends as continuous descent segments on residual (y_s - baseline).
-
-        Per request:
-        - Must be a continuous descent (consecutive negative derivative) segment
-        - Output ONLY the first point of each descent segment
-        - Ignore bends within ±0.5 km of any dirty connector
-        - Magnitude is the total drop over the descent (stored as negative dB)
-        """
+        
         cfg = self.cfg
-        # Use residual to remove baseline slope
         resid = y_s - baseline
         resid_s = self._smooth(resid)
         dr = np.gradient(resid_s)
-        n = len(resid_s)
 
         # region limit
-        end = break_index if break_index is not None else n
+        end = break_index if break_index is not None else len(dr)
         if effective_end_index is not None:
             end = min(end, effective_end_index)
         if end <= 0:
@@ -413,34 +470,47 @@ class Detector:
         if exclude_indices:
             dirty_positions_km = self.z[np.array(exclude_indices, dtype=int)]
 
+        #确定弯折的区间
         in_run = False
         run_start = 0
-        for i in range(max(1, end - 1)):
-            is_neg = dr[i] < -max(0.0, cfg.min_bend_grad_abs)
+        for i in range(end):
+            if i < end - 1:
+                # 正常点
+                is_neg = dr[i] < -max(0.0, cfg.min_bend_grad_abs)
+            else:
+                # 虚拟点：强制认为不是负斜率
+                is_neg = False
+
             if is_neg and not in_run:
                 in_run = True
                 run_start = i
             elif not is_neg and in_run:
-                # run ended at i-1
-                self._process_bend_run(
-                    run_start,
-                    i - 1,
-                    resid_s,
-                    dirty_positions_km,
-                    events,
-                )
+                run_end = i - 1
+                run_len = run_end - run_start + 1
+                mid_idx = run_start + run_len // 2
+                drop_db = float(resid_s[run_start] - resid_s[run_end])
+                #判断是否满足弯折的要求
+                if (
+                    run_len >= self._bend_min_descent_samples
+                    and cfg.bend_min_step_db <= drop_db <= cfg.bend_max_step_db 
+                    and(
+                        dirty_positions_km is None 
+                        or not np.any(
+                            np.abs(self.z[mid_idx] - dirty_positions_km)<= cfg.bend_dirty_exclusion_km
+                        )
+                    )
+                ):
+                    events.append(
+                        DetectedEvent(
+                            kind="bend",
+                            z_km=float(self.z[mid_idx]),
+                            magnitude_db=float(-drop_db),
+                            reflect_db=0.0,
+                            index=int(run_start),
+                            extra={"descent_len": int(run_len)},
+                        ),
+                    )
                 in_run = False
-
-        # handle a run that reaches the loop end
-        if in_run:
-            self._process_bend_run(
-                run_start,
-                max(0, end - 2),
-                resid_s,
-                dirty_positions_km,
-                events,
-            )
-
         return events
 
     def _find_baseline_end_index(self, baseline_trace: np.ndarray) -> int | None:
@@ -452,18 +522,18 @@ class Detector:
         """
         cfg = self.cfg
         n = len(baseline_trace)
-        limit = max(0, n - cfg.tail_end_offset - 1)
+        limit = max(0, n - self._tail_end_offset_samples - 1)
         for i in range(limit):
-            tail_start = i + cfg.tail_start_offset
-            tail_end = min(n, i + cfg.tail_end_offset)
-            if tail_end - tail_start < cfg.min_tail_segment_len:
+            tail_start = i + self._tail_start_offset_samples
+            tail_end = min(n, i + self._tail_end_offset_samples)
+            if tail_end - tail_start < self._min_tail_segment_samples:
                 continue
             tail_segment = baseline_trace[tail_start:tail_end]
             tail_mean = float(np.mean(tail_segment))
             if tail_mean < cfg.noise_floor_db:
-                pre_a = max(0, i - cfg.pre_window)
-                pre_b = max(pre_a, i - cfg.pre_end_offset)
-                if pre_b - pre_a < cfg.min_tail_segment_len:
+                pre_a = max(0, i - self._pre_window_samples)
+                pre_b = max(pre_a, i - self._pre_end_offset_samples)
+                if pre_b - pre_a < self._min_tail_segment_samples:
                     continue
                 pre_segment = baseline_trace[pre_a:pre_b]
                 pre_mean = float(np.mean(pre_segment))
@@ -477,11 +547,28 @@ class Detector:
         trace_db: np.ndarray,
         _fiber_index: float | None = None,
         _sample_rate_mhz: float | None = None,
+        *,
+        sample_rate_per_km: float | None = None,
     ) -> DetectionResult:
+        if sample_rate_per_km and sample_rate_per_km > 0:
+            rate_val = float(sample_rate_per_km)
+            if self.sample_rate_per_km != rate_val or self.sample_spacing_km <= 0:
+                self.sample_rate_per_km = rate_val
+                self._apply_sample_spacing(self._sample_spacing_from_rate(rate_val))
+        elif self.sample_rate_per_km and self.sample_rate_per_km > 0:
+            if self.sample_spacing_km <= 0:
+                self._apply_sample_spacing(
+                    self._sample_spacing_from_rate(self.sample_rate_per_km)
+                )
+        elif self.sample_spacing_km <= 0:
+            inferred = self._infer_sample_spacing_from_distance()
+            if inferred > 0:
+                self._apply_sample_spacing(inferred)
+
         y = np.asarray(trace_db)
         y_s = self._smooth(y)
 
-        # Prepare baseline and residual for plotting compatibility
+        # 我觉得如果baseline没有提供就可以报错了，因为除了断裂以外的两个点都是通过baseline的对比来求的
         if self.baseline is None:
             baseline = self._fit_linear_baseline(self.z, y_s)
         else:
@@ -497,9 +584,18 @@ class Detector:
 
         # Determine effective end based on baseline-only end detection
         baseline_end_index = self._find_baseline_end_index(baseline)
+        if (
+            baseline_end_index is not None
+            and baseline_end_index < self._pre_window_samples
+        ):
+            baseline_end_index = None
 
         # 1) detect break first (limited before baseline end if available)
-        break_events = self._detect_break(y_s, effective_end_index=baseline_end_index)
+        break_events = self._detect_break(
+            y_s,
+            y,
+            effective_end_index=baseline_end_index,
+        )
         first_break_index = break_events[0].index if break_events else None
 
         # 2) detect dirty connectors before the break (first, as requested)
