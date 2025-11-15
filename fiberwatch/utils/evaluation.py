@@ -17,6 +17,7 @@ def _normalize_expected(value: Sequence[str] | set[str]) -> set[str]:
         return {value}
     return set(value)
 
+
 # Event labels supported by default. Values are sets of acceptable detector kinds.
 DEFAULT_LABEL_MAP: Mapping[str, set[str]] = {
     "nc-break": {"break"},
@@ -50,6 +51,35 @@ class DatasetEvaluation:
     overall_accuracy: float
     per_label: dict[str, dict[str, float | int]]
     samples: list[SampleEvaluation] = field(default_factory=list)
+    precision: float = 0.0
+    recall: float = 0.0
+    f1_score: float = 0.0
+
+
+def _compute_classification_metrics(
+    counts: Mapping[str, Mapping[str, int]],
+) -> tuple[float, float, float]:
+    """Compute precision, recall, and F1 score from label-level counts."""
+
+    true_positives = sum(stats.get("tp", 0) for stats in counts.values())
+    false_positives = sum(stats.get("fp", 0) for stats in counts.values())
+    false_negatives = sum(stats.get("fn", 0) for stats in counts.values())
+
+    precision = (
+        true_positives / (true_positives + false_positives)
+        if (true_positives + false_positives)
+        else 0.0
+    )
+    recall = (
+        true_positives / (true_positives + false_negatives)
+        if (true_positives + false_negatives)
+        else 0.0
+    )
+    f1_score = (
+        2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
+    )
+
+    return precision, recall, f1_score
 
 
 def evaluate_detector_on_dataset(
@@ -81,12 +111,28 @@ def evaluate_detector_on_dataset(
     config = detection_config or DetectorConfig()
     mapping: Mapping[str, Sequence[str] | set[str]] = label_map or DEFAULT_LABEL_MAP
     ignored = set(skip_labels or ())
+    normalized_label_map: dict[str, set[str]] = {
+        label: _normalize_expected(events) for label, events in mapping.items()
+    }
+    tracking_labels: dict[str, set[str]] = {
+        label: events
+        for label, events in normalized_label_map.items()
+        if label not in ignored
+    }
+    metric_labels: dict[str, set[str]] = {
+        label: events for label, events in tracking_labels.items() if events
+    }
 
     samples: list[SampleEvaluation] = []
-    per_label: dict[str, dict[str, float | int]] = {}
+    per_label: dict[str, dict[str, float | int]] = {
+        label: {"total": 0, "correct": 0, "accuracy": 0.0} for label in tracking_labels
+    }
     total_files = 0
     evaluated_files = 0
     skipped_files = 0
+    classification_totals: dict[str, dict[str, int]] = {
+        label: {"tp": 0, "fp": 0, "fn": 0} for label in metric_labels
+    }
 
     baseline_trace: np.ndarray | None = None
     baseline_distance: np.ndarray | None = None
@@ -108,11 +154,10 @@ def evaluate_detector_on_dataset(
             if label in ignored:
                 skipped_files += 1
                 continue
-            expected_raw = mapping.get(label)
-            if expected_raw is None:
+            expected = tracking_labels.get(label)
+            if expected is None:
                 skipped_files += 1
                 continue
-            expected = _normalize_expected(expected_raw)
             try:
                 trace = load_test_data(trace_path)
                 distance_axis = create_distance_axis(len(trace), total_distance_km)
@@ -160,36 +205,67 @@ def evaluate_detector_on_dataset(
                     is_correct=is_correct,
                 )
                 samples.append(result)
-                stats = per_label.setdefault(
-                    label,
-                    {"total": 0, "correct": 0, "accuracy": 0.0},
-                )
+                stats = per_label[label]
                 stats["total"] += 1
                 if is_correct:
                     stats["correct"] += 1
+
+                if metric_labels:
+                    for metric_label, events in metric_labels.items():
+                        predicted_positive = bool(predicted & events)
+                        actual_positive = label == metric_label
+                        if predicted_positive and actual_positive:
+                            classification_totals[metric_label]["tp"] += 1
+                        elif predicted_positive and not actual_positive:
+                            classification_totals[metric_label]["fp"] += 1
+                        elif actual_positive and not predicted_positive:
+                            classification_totals[metric_label]["fn"] += 1
             except Exception as exc:  # noqa: BLE001 - we want to capture all errors
                 skipped_files += 1
                 samples.append(
                     SampleEvaluation(
                         path=trace_path.relative_to(root),
                         label=label,
-                        expected=_normalize_expected(expected_raw),
+                        expected=expected,
                         predicted=set(),
                         is_correct=False,
                         error=str(exc),
                     )
                 )
 
-    for stats in per_label.values():
+    for label, stats in per_label.items():
         if stats["total"]:
             stats["accuracy"] = stats["correct"] / stats["total"]
         else:
             stats["accuracy"] = 0.0
+        counts = classification_totals.get(label)
+        if counts:
+            tp = counts["tp"]
+            fp = counts["fp"]
+            fn = counts["fn"]
+            stats["precision"] = tp / (tp + fp) if (tp + fp) else 0.0
+            stats["recall"] = tp / (tp + fn) if (tp + fn) else 0.0
+            stats["f1"] = (
+                2
+                * stats["precision"]
+                * stats["recall"]
+                / (stats["precision"] + stats["recall"])
+                if (stats["precision"] + stats["recall"])
+                else 0.0
+            )
+        else:
+            stats["precision"] = 0.0
+            stats["recall"] = 0.0
+            stats["f1"] = 0.0
 
     overall_accuracy = (
         sum(stats["correct"] for stats in per_label.values()) / evaluated_files
         if evaluated_files
         else 0.0
+    )
+
+    precision, recall, f1_score = _compute_classification_metrics(
+        classification_totals,
     )
 
     return DatasetEvaluation(
@@ -199,4 +275,7 @@ def evaluate_detector_on_dataset(
         overall_accuracy=overall_accuracy,
         per_label=per_label,
         samples=samples,
+        precision=precision,
+        recall=recall,
+        f1_score=f1_score,
     )
