@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -38,7 +38,9 @@ def _format_event_set(events: set[str]) -> str:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Evaluate detector accuracy on dataset")
+    parser = argparse.ArgumentParser(
+        description="Evaluate detector accuracy on dataset"
+    )
     parser.add_argument(
         "--dataset-root",
         type=Path,
@@ -87,15 +89,21 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Evaluated files: {result.evaluated_files}")
     print(f"Skipped files: {result.skipped_files}")
     print(f"Overall accuracy: {result.overall_accuracy:.3f}")
+    print(f"Precision: {result.precision:.3f}")
+    print(f"Recall: {result.recall:.3f}")
+    print(f"F1 score: {result.f1_score:.3f}")
     print()
 
     if result.per_label:
-        print("Per-label accuracy:")
+        print("Per-label metrics:")
         for label in sorted(result.per_label):
             stats = result.per_label[label]
             print(
                 f"  {label:>15}: {stats['correct']:>3}/{stats['total']:<3}"
-                f" ({stats['accuracy']:.3f})"
+                f" acc={stats['accuracy']:.3f}"
+                f" P={stats.get('precision', 0.0):.3f}"
+                f" R={stats.get('recall', 0.0):.3f}"
+                f" F1={stats.get('f1', 0.0):.3f}"
             )
         print()
 
@@ -103,7 +111,9 @@ def main(argv: list[str] | None = None) -> None:
     errors = [
         sample
         for sample in result.samples
-        if sample.label in tracked_labels and not sample.is_correct and sample.error is None
+        if sample.label in tracked_labels
+        and not sample.is_correct
+        and sample.error is None
     ]
     failures = [
         sample
