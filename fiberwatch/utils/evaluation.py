@@ -18,6 +18,13 @@ def _normalize_expected(value: Sequence[str] | set[str]) -> set[str]:
     return set(value)
 
 
+def _is_positive_prediction(predicted: set[str], expected: set[str]) -> bool:
+    """Check if predictions match expectation for a label."""
+    if expected:
+        return bool(predicted & expected)
+    return len(predicted) == 0
+
+
 # Event labels supported by default. Values are sets of acceptable detector kinds.
 DEFAULT_LABEL_MAP: Mapping[str, set[str]] = {
     "nc-break": {"break"},
@@ -119,9 +126,7 @@ def evaluate_detector_on_dataset(
         for label, events in normalized_label_map.items()
         if label not in ignored
     }
-    metric_labels: dict[str, set[str]] = {
-        label: events for label, events in tracking_labels.items() if events
-    }
+    metric_labels: dict[str, set[str]] = dict(tracking_labels)
 
     samples: list[SampleEvaluation] = []
     per_label: dict[str, dict[str, float | int]] = {
@@ -192,10 +197,7 @@ def evaluate_detector_on_dataset(
                     sample_rate_per_km=effective_rate,
                 )
                 predicted = {event.kind for event in detection.events}
-                if expected:
-                    is_correct = any(kind in predicted for kind in expected)
-                else:
-                    is_correct = len(predicted) == 0
+                is_correct = _is_positive_prediction(predicted, expected)
                 evaluated_files += 1
                 result = SampleEvaluation(
                     path=trace_path.relative_to(root),
@@ -212,7 +214,7 @@ def evaluate_detector_on_dataset(
 
                 if metric_labels:
                     for metric_label, events in metric_labels.items():
-                        predicted_positive = bool(predicted & events)
+                        predicted_positive = _is_positive_prediction(predicted, events)
                         actual_positive = label == metric_label
                         if predicted_positive and actual_positive:
                             classification_totals[metric_label]["tp"] += 1
