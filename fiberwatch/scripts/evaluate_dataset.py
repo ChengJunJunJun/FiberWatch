@@ -16,9 +16,10 @@ DEFAULT_LABEL_MAP = {
     "nc-break": {"break"},
     "bend": {"bend"},
     "dirty_connector": {"dirty_connector"},
+    "none": set(),
 }
 
-SKIP_LABELS = {"none", "connector_apc", "connector_upc", "splice"}
+SKIP_LABELS = {"connector_apc", "connector_upc", "splice"}
 
 
 def _pick_baseline_file(dataset_root: Path) -> Path:
