@@ -246,4 +246,4 @@ config/production_*.py
 
 data/
 docs/
-.ruff_cache/
+.ruff_cache/.claude/
