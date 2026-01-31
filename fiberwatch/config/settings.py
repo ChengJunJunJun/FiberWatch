@@ -5,17 +5,19 @@ This module defines all configurable parameters and provides
 functions for loading, saving, and validating configurations.
 """
 
-from dataclasses import dataclass, asdict
-from pathlib import Path
-from typing import Dict, Any, Optional, Union
 import json
 import os
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Dict, Optional, Union
 
 
 @dataclass
 class DetectionConfig:
     """Configuration for OTDR event detection algorithms."""
 
+    # 采样间距（新增）
+    sample_spacing_km: float = 0.0025545  # 默认 1米
     # Smoothing parameters
     smooth_win: int = 21
     smooth_poly: int = 3
@@ -62,6 +64,8 @@ class DetectionConfig:
 
     def validate(self) -> None:
         """Validate configuration parameters."""
+        if self.sample_spacing_km <= 0:
+            raise ValueError("sample_spacing_km must be positive")
         if self.smooth_win <= 0 or self.smooth_win % 2 == 0:
             raise ValueError("smooth_win must be positive and odd")
         if self.smooth_poly < 1:

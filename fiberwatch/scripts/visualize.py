@@ -27,10 +27,9 @@ def run_visualization(
     input_file: Path,
     baseline_file: Path | None = None,
     output_dir: Path = Path("output"),
-    distance_km: float = 20.0,
+    sample_spacing_km: float = 0.0025545,  # 采样间距，默认约2.55米
     save_plots: bool = True,
     config: DetectorConfig | None = None,
-    sample_rate_per_km: float | None = None,
 ):
     """
     Run OTDR visualization on input data file.
@@ -39,14 +38,14 @@ def run_visualization(
         input_file: Path to input OTDR data file
         baseline_file: Optional path to baseline reference file
         output_dir: Output directory for plots
-        distance_km: Fiber length in kilometers
+        sample_spacing_km: Distance between samples in kilometers (采样间距)
         save_plots: Whether to save plots to files
         config: Application configuration
 
     """
     print("FiberWatch OTDR Visualization")
     print(f"Input file: {input_file}")
-    print(f"Fiber length: {distance_km} km")
+    print(f"Sample spacing: {sample_spacing_km * 1000:.2f} m")
 
     # Validate input file
     if not input_file.exists():
@@ -61,8 +60,11 @@ def run_visualization(
     test_data = load_test_data(input_file)
     print(f"Loaded {len(test_data)} data points")
 
-    # Create distance axis
-    distance_axis = create_distance_axis(len(test_data), distance_km)
+    # Create distance axis: 点数 × 采样间距
+    distance_axis = create_distance_axis(len(test_data), sample_spacing_km)
+    print(
+        f"Total fiber length: {distance_axis[-1]:.3f} km ({distance_axis[-1] * 1000:.1f} m)"
+    )
 
     # Load baseline if provided
     baseline_data = None
@@ -77,7 +79,7 @@ def run_visualization(
             if len(baseline_data) != len(test_data):
                 baseline_distance = create_distance_axis(
                     len(baseline_data),
-                    distance_km,
+                    sample_spacing_km,
                 )
                 baseline_data = np.interp(
                     distance_axis,
@@ -102,13 +104,13 @@ def run_visualization(
     # Run detection
     print("Running event detection...")
     detector = Detector(
-        distance_km=distance_axis,
+        trace_db=test_data,
         baseline=baseline_data,
         config=detector_config,
-        sample_rate_per_km=sample_rate_per_km,
+        sample_spacing_km=sample_spacing_km,
     )
 
-    result = detector.detect(test_data, sample_rate_per_km=sample_rate_per_km)
+    result = detector.detect(test_data)
     print(f"Detected {len(result.events)} raw events")
 
     # Cluster events
@@ -183,20 +185,15 @@ def main():
         help="Output directory",
     )
     parser.add_argument(
-        "--distance",
+        "--sample-spacing",
         type=float,
-        default=20.0,
-        help="Fiber length in km",
+        default=0.0025545,
+        help="Sample spacing in km (default: 0.0025545 km ≈ 2.55 m)",
     )
     parser.add_argument(
         "--no-save",
         action="store_true",
         help="Don't save plots to files",
-    )
-    parser.add_argument(
-        "--sample-rate-per-km",
-        type=float,
-        help="Sampling rate expressed as samples per kilometer",
     )
 
     args = parser.parse_args()
@@ -205,9 +202,8 @@ def main():
         input_file=args.input_file,
         baseline_file=args.baseline,
         output_dir=args.output,
-        distance_km=args.distance,
+        sample_spacing_km=args.sample_spacing,
         save_plots=not args.no_save,
-        sample_rate_per_km=args.sample_rate_per_km,
     )
 
 

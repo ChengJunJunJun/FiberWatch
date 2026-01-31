@@ -1,84 +1,11 @@
-from dataclasses import dataclass, field
 import math
+from dataclasses import dataclass, field
 
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import savgol_filter
 
-
-@dataclass
-class DetectorConfig:
-    """Configuration for the minimal break-only detector."""
-
-    # Smoothing
-    smooth_win: int = 21
-    smooth_poly: int = 3
-
-    # Legacy parameters kept for API compatibility with older callers.
-    # They are currently unused in the break-only detector.
-    refl_min_db: float = 1.0
-    step_min_db: float = 0.05
-    slope_min_db_per_km: float = 0.05
-    min_event_separation: int = 30
-
-    # Break detection windows (expressed as physical distances in km)
-    pre_window_km: float = 0.30
-    pre_end_offset_km: float = 0.025
-    tail_start_offset_km: float = 0.05
-    tail_end_offset_km: float = 0.55
-
-    # Thresholds
-    min_signal_drop_db: float = 5.0
-    noise_floor_db: float = -80.0
-    min_noise_increase: float = 1.5
-    min_zero_crossing_ratio: float = 0.05  # proportion of sign flips in tail derivative
-    min_tail_segment_len_km: float = 0.075
-    # Derivative thresholding
-    grad_sigma_factor: float = (
-        3.0  # how many std devs below mean to consider a sharp drop
-    )
-    min_grad_abs: float = 0.005  # absolute minimal negative derivative (dB/sample)
-
-    # Dirty-connector detection
-    dirty_grad_sigma_factor: float = 6.0  # stricter: large spikes only
-    min_dirty_grad_abs: float = 0.001  # minimal |d(diff)|
-    step_window_km: float = 0.15  # physical window for local step estimation
-    dirty_min_step_db: float = 1.5  # require large diff step for dirty connector
-    dirty_exclusion_before_break_km: float = 0.5  # 断点处向前500m不检测脏连接器
-    dirty_duplicate_skip_km: float = 0.025  # 跳过重复脏连接器的最小间隔
-
-    # Bend detection (two small steps newly appearing in test)
-    bend_grad_sigma_factor: float = 2.0
-    min_bend_grad_abs: float = 0.0005
-    bend_pair_max_gap_km: float = 0.125  # max gap between paired steps (if used)
-    bend_min_step_db: float = 0.05  # 越大越严格
-    bend_max_step_db: float = 1.2
-    bend_step_window_km: float = 0.075  # 越小越严格
-    # 连续下降检测相关参数
-    bend_min_descent_len_km: float = 0.05  # 连续负斜率的最小长度
-    bend_dirty_exclusion_km: float = 0.5  # 脏连接器±0.5km范围内不计入bend
-
-    def validate(self) -> None:
-        """Validate configuration values."""
-
-        if self.smooth_win <= 0 or self.smooth_win % 2 == 0:
-            raise ValueError("smooth_win must be positive and odd")
-        if self.smooth_poly <= 0:
-            raise ValueError("smooth_poly must be positive")
-        if self.refl_min_db <= 0:
-            raise ValueError("refl_min_db must be positive")
-        if self.step_min_db <= 0:
-            raise ValueError("step_min_db must be positive")
-        if self.pre_window_km <= 0:
-            raise ValueError("pre_window_km must be positive")
-        if self.tail_end_offset_km <= self.tail_start_offset_km:
-            raise ValueError("tail_end_offset_km must exceed tail_start_offset_km")
-        if self.min_tail_segment_len_km <= 0:
-            raise ValueError("min_tail_segment_len_km must be positive")
-        if self.step_window_km <= 0:
-            raise ValueError("step_window_km must be positive")
-        if self.bend_min_descent_len_km <= 0:
-            raise ValueError("bend_min_descent_len_km must be positive")
+from ..config.settings import DetectionConfig as DetectorConfig
 
 
 @dataclass
@@ -145,16 +72,28 @@ class Detector:
 
     def __init__(
         self,
-        distance_km: np.ndarray,
+        trace_db: np.ndarray,  # ← 改为：直接传入trace数据，自动获取点数
         baseline: np.ndarray | None = None,
         config: DetectorConfig | None = None,
         *,
-        sample_rate_per_km: float | None = None,
+        sample_spacing_km: float,  # ← 必须参数：采样间距（km）
     ) -> None:
         if config is None:
             config = DetectorConfig()
-        self.z = np.asarray(distance_km)
+
+        # 从 trace 数据自动获取采样点数
+        n_samples = len(trace_db)
+        if n_samples <= 0:
+            raise ValueError("trace_db must not be empty")
+
+        if sample_spacing_km <= 0:
+            raise ValueError("sample_spacing_km must be positive")
+
+        # 自动生成距离数组：点数 × 采样间距
+        self.z = np.arange(n_samples) * sample_spacing_km
         self.distance_km = self.z
+        self.sample_spacing_km = float(sample_spacing_km)
+
         self.baseline = None if baseline is None else np.asarray(baseline)
         # ensure odd window length for SG filter
         self.smooth_win = int(max(5, config.smooth_win) // 2 * 2 + 1)
@@ -162,17 +101,8 @@ class Detector:
         self.cfg = config
         self.config = config
 
-        if sample_rate_per_km and sample_rate_per_km > 0:
-            self.sample_rate_per_km: float | None = float(sample_rate_per_km)
-            spacing = self._sample_spacing_from_rate(self.sample_rate_per_km)
-        else:
-            self.sample_rate_per_km = None
-            spacing = self._infer_sample_spacing_from_distance()
-
-        if spacing <= 0:
-            spacing = 0.0
-
-        self._apply_sample_spacing(spacing)
+        # 直接使用采样间距，不再需要推断
+        self._apply_sample_spacing(self.sample_spacing_km)
 
     @staticmethod
     def _fit_linear_baseline(z: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -198,20 +128,6 @@ class Detector:
             polyorder=self.smooth_poly,
             mode="interp",
         )
-
-    @staticmethod
-    def _sample_spacing_from_rate(rate_per_km: float | None) -> float:
-        if rate_per_km is None or rate_per_km <= 0:
-            return 0.0
-        return 1.0 / float(rate_per_km)
-
-    def _infer_sample_spacing_from_distance(self) -> float:
-        if len(self.z) > 1:
-            diffs = np.diff(self.z)
-            diffs = diffs[np.isfinite(diffs) & (diffs > 0)]
-            if diffs.size:
-                return float(np.median(diffs))
-        return 0.0
 
     def _apply_sample_spacing(self, spacing_km: float) -> None:
         self.sample_spacing_km = float(spacing_km) if spacing_km > 0 else 0.0
@@ -330,7 +246,9 @@ class Detector:
 
             # dynamic derivative threshold using pre-window derivative stats
             dy_pre = dy[pre_a:pre_b]
-            if len(dy_pre) < self._min_derivative_samples:  # 在这个判定下，前50m的故障点检测不到
+            if (
+                len(dy_pre) < self._min_derivative_samples
+            ):  # 在这个判定下，前50m的故障点检测不到
                 continue
             dy_pre_std = float(np.std(dy_pre))
             grad_threshold = max(cfg.min_grad_abs, cfg.grad_sigma_factor * dy_pre_std)
@@ -424,7 +342,9 @@ class Detector:
                 before = float(np.mean(diff_s[a:mid]))
                 after = float(np.mean(diff_s[mid:b]))
                 step_db = before - after
-                if abs(step_db) < cfg.dirty_min_step_db:#这个地方是不是不需要取绝对值，因为是尖峰而不是山谷
+                if (
+                    abs(step_db) < cfg.dirty_min_step_db
+                ):  # 这个地方是不是不需要取绝对值，因为是尖峰而不是山谷
                     i += 1
                     continue
                 events.append(
@@ -442,7 +362,7 @@ class Detector:
                 continue
             i += 1
         return events
-    
+
     def _detect_bends(
         self,
         y_s: np.ndarray,
@@ -451,7 +371,6 @@ class Detector:
         effective_end_index: int | None,
         exclude_indices: list[int] | None = None,
     ) -> list[DetectedEvent]:
-        
         cfg = self.cfg
         resid = y_s - baseline
         resid_s = self._smooth(resid)
@@ -470,7 +389,7 @@ class Detector:
         if exclude_indices:
             dirty_positions_km = self.z[np.array(exclude_indices, dtype=int)]
 
-        #确定弯折的区间
+        # 确定弯折的区间
         in_run = False
         run_start = 0
         for i in range(end):
@@ -489,14 +408,15 @@ class Detector:
                 run_len = run_end - run_start + 1
                 mid_idx = run_start + run_len // 2
                 drop_db = float(resid_s[run_start] - resid_s[run_end])
-                #判断是否满足弯折的要求
+                # 判断是否满足弯折的要求
                 if (
                     run_len >= self._bend_min_descent_samples
-                    and cfg.bend_min_step_db <= drop_db <= cfg.bend_max_step_db 
-                    and(
-                        dirty_positions_km is None 
+                    and cfg.bend_min_step_db <= drop_db <= cfg.bend_max_step_db
+                    and (
+                        dirty_positions_km is None
                         or not np.any(
-                            np.abs(self.z[mid_idx] - dirty_positions_km)<= cfg.bend_dirty_exclusion_km
+                            np.abs(self.z[mid_idx] - dirty_positions_km)
+                            <= cfg.bend_dirty_exclusion_km
                         )
                     )
                 ):
@@ -545,25 +465,11 @@ class Detector:
     def detect(
         self,
         trace_db: np.ndarray,
-        _fiber_index: float | None = None,
+        _fiber_index: float | None = None,  # 这个是干嘛的？
         _sample_rate_mhz: float | None = None,
-        *,
-        sample_rate_per_km: float | None = None,
     ) -> DetectionResult:
-        if sample_rate_per_km and sample_rate_per_km > 0:
-            rate_val = float(sample_rate_per_km)
-            if self.sample_rate_per_km != rate_val or self.sample_spacing_km <= 0:
-                self.sample_rate_per_km = rate_val
-                self._apply_sample_spacing(self._sample_spacing_from_rate(rate_val))
-        elif self.sample_rate_per_km and self.sample_rate_per_km > 0:
-            if self.sample_spacing_km <= 0:
-                self._apply_sample_spacing(
-                    self._sample_spacing_from_rate(self.sample_rate_per_km)
-                )
-        elif self.sample_spacing_km <= 0:
-            inferred = self._infer_sample_spacing_from_distance()
-            if inferred > 0:
-                self._apply_sample_spacing(inferred)
+        if self.sample_spacing_km <= 0:
+            raise ValueError("sample_spacing_km must be positive, set it in __init__")
 
         y = np.asarray(trace_db)
         y_s = self._smooth(y)

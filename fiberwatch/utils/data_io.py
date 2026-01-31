@@ -7,6 +7,7 @@ and creating distance axes for analysis.
 
 from pathlib import Path
 from typing import Union
+
 import numpy as np
 
 
@@ -50,13 +51,13 @@ def load_test_data(filepath: Union[str, Path]) -> np.ndarray:
     return np.array(data, dtype=np.float64)
 
 
-def create_distance_axis(n_samples: int, total_distance_km: float = 20.0) -> np.ndarray:
+def create_distance_axis(n_samples: int, sample_spacing_km: float) -> np.ndarray:
     """
     Create a linear distance axis for OTDR data.
 
     Args:
-        n_samples: Number of samples in the trace
-        total_distance_km: Total fiber length in kilometers
+        n_samples: Number of samples in the trace (自动从数据获取)
+        sample_spacing_km: Distance between samples in kilometers (采样间距)
 
     Returns:
         NumPy array of distances in kilometers
@@ -66,10 +67,11 @@ def create_distance_axis(n_samples: int, total_distance_km: float = 20.0) -> np.
     """
     if n_samples <= 0:
         raise ValueError("Number of samples must be positive")
-    if total_distance_km <= 0:
-        raise ValueError("Total distance must be positive")
+    if sample_spacing_km <= 0:
+        raise ValueError("Sample spacing must be positive")
 
-    return np.linspace(0, total_distance_km, n_samples)
+    # 总距离 = (点数 - 1) × 采样间距
+    return np.arange(n_samples) * sample_spacing_km
 
 
 def parse_uploaded_file(uploaded_file) -> np.ndarray:
@@ -121,8 +123,9 @@ def save_detection_results(
     Raises:
         ValueError: If format is not supported
     """
-    import pandas as pd
     import json
+
+    import pandas as pd
 
     output_path = Path(output_path)
 

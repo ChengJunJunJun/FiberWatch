@@ -1,5 +1,6 @@
 {
   "detection": {
+    "sample_spacing_km": 0.0025545,
     "smooth_win": 21,
     "smooth_poly": 3,
     "refl_min_db": 1.0,
@@ -37,7 +38,7 @@
     "page_title": "FiberWatch OTDR Analysis",
     "layout": "wide",
     "initial_sidebar_state": "expanded",
-    "default_distance_km": 20.0,
+    "default_sample_spacing_km": 0.0025545,
     "default_series_name": "analysis",
     "default_output_dir": "output",
     "max_file_size_mb": 100,
