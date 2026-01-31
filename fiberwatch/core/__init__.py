@@ -6,12 +6,10 @@ for analyzing OTDR traces and detecting various types of fiber events.
 """
 
 from .detector import Detector, DetectionResult, DetectedEvent, DetectorConfig
-from .simulation import make_synthetic_otdr
 
 __all__ = [
     "Detector",
     "DetectionResult",
     "DetectedEvent",
     "DetectorConfig",
-    "make_synthetic_otdr",
 ]
