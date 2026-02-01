@@ -3,8 +3,8 @@ from dataclasses import dataclass, field
 
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.signal import savgol_filter
 
+# from scipy.signal import savgol_filter
 from ..config.settings import DetectionConfig as DetectorConfig
 
 
@@ -22,7 +22,7 @@ class DetectedEvent:
 class DetectionResult:
     events: list[DetectedEvent]
     distance_km: np.ndarray
-    trace_smooth_db: np.ndarray
+    trace_smooth_db: np.ndarray  # 保留字段名，但实际存储原始数据
     baseline_db: np.ndarray
     residual_db: np.ndarray
 
@@ -31,7 +31,7 @@ class DetectionResult:
         y = self.trace_smooth_db
         b = self.baseline_db
         fig = plt.figure(figsize=(10, 4))
-        plt.plot(z, y, label="trace (smooth)")
+        plt.plot(z, y, label="trace (raw)")  # 修改标签为 raw
         plt.plot(z, b, "--", label="baseline")
         for ev in self.events:
             plt.axvline(ev.z_km, linestyle=":", alpha=0.6)
@@ -95,9 +95,9 @@ class Detector:
         self.sample_spacing_km = float(sample_spacing_km)
 
         self.baseline = None if baseline is None else np.asarray(baseline)
-        # ensure odd window length for SG filter
-        self.smooth_win = int(max(5, config.smooth_win) // 2 * 2 + 1)
-        self.smooth_poly = int(config.smooth_poly)
+        # # ensure odd window length for SG filter
+        # self.smooth_win = int(max(5, config.smooth_win) // 2 * 2 + 1)
+        # self.smooth_poly = int(config.smooth_poly)
         self.cfg = config
         self.config = config
 
@@ -115,19 +115,19 @@ class Detector:
         m, c = np.linalg.lstsq(design_matrix, y[msk], rcond=None)[0]
         return m * z + c
 
-    def _smooth(self, y: np.ndarray) -> np.ndarray:
-        win = min(self.smooth_win, len(y) // 2 * 2 - 1)
-        if win < self.MIN_WINDOW_SIZE:
-            return y.astype(float)
-        win = max(self.MIN_WINDOW_SIZE, win)
-        if win % 2 == 0:
-            win += 1
-        return savgol_filter(
-            y,
-            window_length=win,
-            polyorder=self.smooth_poly,
-            mode="interp",
-        )
+    # def _smooth(self, y: np.ndarray) -> np.ndarray:
+    #     win = min(self.smooth_win, len(y) // 2 * 2 - 1)
+    #     if win < self.MIN_WINDOW_SIZE:
+    #         return y.astype(float)
+    #     win = max(self.MIN_WINDOW_SIZE, win)
+    #     if win % 2 == 0:
+    #         win += 1
+    #     return savgol_filter(
+    #         y,
+    #         window_length=win,
+    #         polyorder=self.smooth_poly,
+    #         mode="interp",
+    #     )
 
     def _apply_sample_spacing(self, spacing_km: float) -> None:
         self.sample_spacing_km = float(spacing_km) if spacing_km > 0 else 0.0
@@ -299,7 +299,8 @@ class Detector:
         """
         cfg = self.cfg
         diff = baseline - y_s
-        diff_s = self._smooth(diff)
+        # diff_s = self._smooth(diff)  # 注释掉平滑
+        diff_s = diff.astype(float)  # 直接使用原始差值
         dd = np.gradient(diff_s)
 
         # limit to region before break if provided
@@ -373,7 +374,8 @@ class Detector:
     ) -> list[DetectedEvent]:
         cfg = self.cfg
         resid = y_s - baseline
-        resid_s = self._smooth(resid)
+        # resid_s = self._smooth(resid) # 注释掉平滑
+        resid_s = resid.astype(float)  # 直接使用原始残差
         dr = np.gradient(resid_s)
 
         # region limit
@@ -472,7 +474,8 @@ class Detector:
             raise ValueError("sample_spacing_km must be positive, set it in __init__")
 
         y = np.asarray(trace_db)
-        y_s = self._smooth(y)
+        # y_s = self._smooth(y)  # 注释掉平滑
+        y_s = y.astype(float)  # 直接使用原始数据
 
         # 我觉得如果baseline没有提供就可以报错了，因为除了断裂以外的两个点都是通过baseline的对比来求的
         if self.baseline is None:
