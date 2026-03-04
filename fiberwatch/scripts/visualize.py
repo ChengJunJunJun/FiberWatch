@@ -168,7 +168,7 @@ def _print_event_summary(events: list[DetectedEvent]) -> None:
 
     for event in sorted(events, key=lambda e: e.z_km):
         print(
-            f"{event.kind:<15} {event.z_km:<12.3f} {event.magnitude_db:<10.3f} {event.reflect_db:<15.3f}",
+            f"{event.kind:<15} {event.z_km:<18.6f} {event.magnitude_db:<10.3f} {event.reflect_db:<15.3f}",
         )
 
 
