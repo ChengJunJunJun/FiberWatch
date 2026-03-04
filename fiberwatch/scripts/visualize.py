@@ -145,7 +145,7 @@ def run_visualization(
         print("Visualization complete (plots not saved)")
 
     # Print event summary
-    _print_event_summary(clustered_events)
+    _print_event_summary(clustered_events, result)
 
     return {
         "detection_result": result,
@@ -154,22 +154,31 @@ def run_visualization(
     }
 
 
-def _print_event_summary(events: list[DetectedEvent]) -> None:
+def _print_event_summary(events: list[DetectedEvent], result=None) -> None:
     """Print summary of detected events."""
     if not events:
         print("\n✅ No events detected - fiber appears to be in good condition!")
-        return
-
-    print("\n📊 Event Summary:")
-    print(
-        f"{'Type':<15} {'Position (km)':<12} {'Loss (dB)':<10} {'Reflection (dB)':<15}",
-    )
-    print(f"{'-' * 60}")
-
-    for event in sorted(events, key=lambda e: e.z_km):
+    else:
+        print("\n📊 Event Summary:")
         print(
-            f"{event.kind:<15} {event.z_km:<18.6f} {event.magnitude_db:<10.3f} {event.reflect_db:<15.3f}",
+            f"{'Type':<15} {'Position (km)':<12} {'Loss (dB)':<10} {'Reflection (dB)':<15}",
         )
+        print(f"{'-' * 60}")
+
+        for event in sorted(events, key=lambda e: e.z_km):
+            print(
+                f"{event.kind:<15} {event.z_km:<18.6f} {event.magnitude_db:<10.3f} {event.reflect_db:<15.3f}",
+            )
+
+    # Print reflection peaks
+    if result and result.reflection_peaks:
+        print(f"\n🔹Normal Reflection Peaks ({len(result.reflection_peaks)}):")
+        print(f"{'Position (km)':<18}  {'Height (dB)':<12}")
+        print(f"{'-' * 30}")
+        for peak in result.reflection_peaks:
+            peak_z = float(result.distance_km[peak["index"]])
+            height = peak.get("peak_height_db", float("nan"))
+            print(f"{peak_z:<18.6f} {height:<12.1f}")
 
 
 def main():

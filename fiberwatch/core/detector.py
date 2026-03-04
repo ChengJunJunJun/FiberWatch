@@ -27,6 +27,7 @@ class DetectionResult:
     trace_db: np.ndarray
     baseline_db: np.ndarray
     residual_db: np.ndarray
+    reflection_peaks: list = field(default_factory=list)
 
     @property
     def trace_smooth_db(self) -> np.ndarray:
@@ -37,6 +38,7 @@ class DetectionResult:
         z = self.distance_km
         y = self.trace_db
         b = self.baseline_db
+        y_min = np.nanmin(y)
         fig = plt.figure(figsize=(10, 4))
         plt.plot(z, y, label="trace (raw)")
         plt.plot(z, b, "--", label="baseline")
@@ -45,11 +47,20 @@ class DetectionResult:
             txt = f"{ev.kind} @ {ev.z_km:.4f}km"
             plt.text(
                 ev.z_km,
-                np.nanmin(y) + 2,
+                y_min + 2,
                 txt,
                 rotation=90,
                 va="bottom",
                 fontsize=8,
+            )
+        for peak in self.reflection_peaks:
+            peak_z = float(z[peak["index"]])
+            plt.axvline(
+                peak_z,
+                linestyle="--",
+                color="lightsalmon",
+                alpha=0.4,
+                linewidth=0.7,
             )
         plt.xlabel("Distance (km)")
         plt.ylabel("Return (dB)")
@@ -1157,12 +1168,51 @@ class Detector:
 
         events.sort(key=lambda e: e.index)
 
+        # ── 反射峰检测 ──
+        _OVERLAP_TOLERANCE = 5
+        _REFL_HEIGHT_DB = 6.0
+        _REFL_THRESHOLD_DB = 6.0
+        _FIRST_PEAK_NEARBY_KM = 0.3
+        event_indices = [e.index for e in events]
+
+        # 1) 起始处第一个峰一定是反射峰，紧随其后的第二个峰也是
+        first_peak_indices: set[int] = set()
+        _FIRST_PEAK_MAX_KM = 0.05  # 50m
+        if all_peaks:
+            peak_km = all_peaks[0]["index"] * self.sample_spacing_km
+            if peak_km <= _FIRST_PEAK_MAX_KM:
+                first_peak_indices.add(all_peaks[0]["index"])
+
+        # 2) 构建反射峰列表
+        reflection_peaks = []
+        for p in all_peaks:
+            pidx = p["index"]
+            # 噪声区之后 100m 截断
+            _noise_margin_samples = int(0.1 / self.sample_spacing_km)
+            if pidx >= effective_end + _noise_margin_samples:
+                break
+            # 起始处的峰直接纳入
+            if pidx in first_peak_indices:
+                reflection_peaks.append(p)
+                continue
+            # 与已检测事件重合则跳过
+            if any(abs(pidx - ei) <= _OVERLAP_TOLERANCE for ei in event_indices):
+                continue
+            # 常规阈值判断
+            if (
+                p["height"] - baseline[pidx] > _REFL_HEIGHT_DB
+                and p["peak_height_db"] > _REFL_THRESHOLD_DB
+                and p["height"] - y[p["right_base_index"]] > _REFL_THRESHOLD_DB
+            ):
+                reflection_peaks.append(p)
+
         return DetectionResult(
             events=events,
             distance_km=self.z,
             trace_db=y,
             baseline_db=baseline,
             residual_db=residual,
+            reflection_peaks=reflection_peaks,
         )
 
     # ── 辅助方法 ──────────────────────────────────────────────────
