@@ -38,6 +38,7 @@ dependencies = [
     "matplotlib>=3.5.0",
     "pandas>=1.4.0",
     "streamlit>=1.29.0",
+    "openai>=1.0.0",
 ]
 
 [project.urls]
@@ -52,6 +53,7 @@ fiberwatch = "fiberwatch.scripts.cli:main"
 fiberwatch-visualize = "fiberwatch.scripts.visualize:main"
 fiberwatch-evaluate ="fiberwatch.scripts.evaluate_dataset:main"
 fiberwatch-web = "fiberwatch.web.app:main"
+fiberwatch-llm = "fiberwatch.scripts.visualize_with_llm:main"
 
 [project.optional-dependencies]
 dev = [

@@ -727,8 +727,15 @@ class Detector:
         peak_indices: List[int],
         all_peaks: List[dict],
         events: List[DetectedEvent],
+        drop_fraction: float = 3.0,
     ) -> bool:
-        """第一阶段：弯折检测（无反射峰的阶梯下降）。返回是否找到终端事件。"""
+        """第一阶段：弯折检测（无反射峰的阶梯下降）。返回是否找到终端事件。
+
+        Args:
+            drop_fraction: 精确定位时使用 drop_db / drop_fraction 作为阈值，
+                           默认3.0（原始算法），CNN局部检测传1.5（2/3下降点）。
+                           找到下降点后仍用最陡斜率搜索精确定位。
+        """
         cfg = self._new_cfg
         for i in range(effective_start, bend_end, step):
             has_drop, drop_db = self._check_step_drop(y, i, peak_indices)
@@ -743,7 +750,7 @@ class Detector:
 
             is_stable, plateau_std, plateau_range = self._check_plateau_stability(y, i)
             if is_stable:
-                half_drop = drop_db / 3
+                half_drop = drop_db / drop_fraction
                 baseline = y[i]
                 search_end = min(i + self._step_window_samples, len(y))
                 precise_index = next(

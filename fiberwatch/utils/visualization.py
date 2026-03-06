@@ -306,6 +306,124 @@ def create_streamlit_analysis_figure(
     return fig
 
 
+def create_bend_comparison_plot(
+    original_result: DetectionResult,
+    cnn_result: DetectionResult,
+    original_bend_events: List[DetectedEvent],
+    cnn_bend_events: List[DetectedEvent],
+    filename: str,
+    *,
+    window_m: float = 200.0,
+) -> Optional[plt.Figure]:
+    """
+    Create local comparison plots between original and CNN bend detection.
+
+    For each original bend event, shows a side-by-side local view of the
+    original trace and CNN trace around the bend location, with detected
+    bend positions marked on both.
+
+    Args:
+        original_result: Detection result from original data
+        cnn_result: Detection result from CNN-processed data
+        original_bend_events: Bend events detected on original data
+        cnn_bend_events: Bend events from CNN local detection
+        filename: Base filename for title
+        window_m: Window size in meters around event for local view
+
+    Returns:
+        Matplotlib figure, or None if no original bend events
+    """
+    if not original_bend_events:
+        return None
+
+    n_events = len(original_bend_events)
+    fig, axes = plt.subplots(n_events, 2, figsize=(16, 5 * n_events), squeeze=False)
+
+    orig_z_m = original_result.distance_km * 1000
+    cnn_z_m = cnn_result.distance_km * 1000
+
+    for i, orig_event in enumerate(original_bend_events):
+        event_m = orig_event.z_km * 1000
+        lo = event_m - window_m
+        hi = event_m + window_m
+
+        # Left: Original trace local view
+        ax_orig = axes[i, 0]
+        orig_mask = (orig_z_m >= lo) & (orig_z_m <= hi)
+        ax_orig.plot(
+            orig_z_m[orig_mask],
+            original_result.trace_db[orig_mask],
+            "blue", linewidth=1, label="Original Trace",
+        )
+        ax_orig.plot(
+            orig_z_m[orig_mask],
+            original_result.baseline_db[orig_mask],
+            "red", "--", linewidth=1, label="Baseline",
+        )
+        ax_orig.axvline(event_m, color="purple", linestyle=":", linewidth=2,
+                        label=f"Bend @{event_m:.1f}m ({orig_event.magnitude_db:.2f}dB)")
+        ax_orig.set_xlim(lo, hi)
+        # Auto-fit y-axis to local data range
+        if orig_mask.any():
+            local_vals = np.concatenate([
+                original_result.trace_db[orig_mask],
+                original_result.baseline_db[orig_mask],
+            ])
+            y_min, y_max = np.nanmin(local_vals), np.nanmax(local_vals)
+            y_margin = (y_max - y_min) * 0.1 if y_max > y_min else 1.0
+            ax_orig.set_ylim(y_min - y_margin, y_max + y_margin)
+        ax_orig.set_xlabel("Distance (m)")
+        ax_orig.set_ylabel("Power (dB)")
+        ax_orig.set_title(f"Original Algorithm - Bend #{i+1}")
+        ax_orig.legend(fontsize=8)
+        ax_orig.grid(True, alpha=0.3)
+
+        # Right: CNN trace local view
+        ax_cnn = axes[i, 1]
+        cnn_mask = (cnn_z_m >= lo) & (cnn_z_m <= hi)
+        ax_cnn.plot(
+            cnn_z_m[cnn_mask],
+            cnn_result.trace_db[cnn_mask],
+            "green", linewidth=1, label="CNN Trace",
+        )
+        ax_cnn.plot(
+            cnn_z_m[cnn_mask],
+            cnn_result.baseline_db[cnn_mask],
+            "red", "--", linewidth=1, label="Baseline",
+        )
+        # Mark all CNN bend events in this window
+        for cnn_ev in cnn_bend_events:
+            cnn_ev_m = cnn_ev.z_km * 1000
+            if lo <= cnn_ev_m <= hi:
+                ax_cnn.axvline(
+                    cnn_ev_m, color="purple", linestyle=":", linewidth=2,
+                    label=f"CNN Bend @{cnn_ev_m:.1f}m ({cnn_ev.magnitude_db:.2f}dB)",
+                )
+        # Also mark original bend position for reference
+        ax_cnn.axvline(event_m, color="blue", linestyle="--", linewidth=1, alpha=0.5,
+                        label=f"Orig Bend @{event_m:.1f}m (ref)")
+        ax_cnn.set_xlim(lo, hi)
+        # Auto-fit y-axis to local data range
+        if cnn_mask.any():
+            local_vals = np.concatenate([
+                cnn_result.trace_db[cnn_mask],
+                cnn_result.baseline_db[cnn_mask],
+            ])
+            y_min, y_max = np.nanmin(local_vals), np.nanmax(local_vals)
+            y_margin = (y_max - y_min) * 0.1 if y_max > y_min else 1.0
+            ax_cnn.set_ylim(y_min - y_margin, y_max + y_margin)
+        ax_cnn.set_xlabel("Distance (m)")
+        ax_cnn.set_ylabel("Power (dB)")
+        ax_cnn.set_title(f"CNN Local Detection - Bend #{i+1}")
+        ax_cnn.legend(fontsize=8)
+        ax_cnn.grid(True, alpha=0.3)
+
+    fig.suptitle(f"Bend Detection Comparison (Original vs CNN) - {filename}",
+                 fontsize=14, fontweight="bold")
+    plt.tight_layout()
+    return fig
+
+
 def save_all_plots(
     result: DetectionResult,
     clustered_events: List[DetectedEvent],
