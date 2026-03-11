@@ -13,7 +13,6 @@ from fiberwatch.config import get_default_config
 # Import FiberWatch components
 from fiberwatch.core import Detector, DetectorConfig
 from fiberwatch.utils.data_io import create_distance_axis, parse_uploaded_file
-from fiberwatch.utils.event_processing import cluster_events, get_event_statistics
 from fiberwatch.web.ui_components import (
     render_analysis_results,
     render_download_section,
@@ -129,18 +128,23 @@ def _run_analysis(params: dict, config) -> dict:
             sample_rate_per_km=sample_rate_per_km,
         )
 
-        # Cluster events
-        clustered_events = cluster_events(
-            detection_result.events,
-            distance_threshold_m=params["distance_cluster_m"],
-        )
+        events = detection_result.events
 
         # Calculate statistics
-        event_stats = get_event_statistics(clustered_events)
+        event_counts = {}
+        for ev in events:
+            event_counts[ev.kind] = event_counts.get(ev.kind, 0) + 1
+        event_stats = {
+            "total_events": len(events),
+            "event_types": event_counts,
+            "total_loss_db": sum(abs(ev.magnitude_db) for ev in events) if events else 0.0,
+            "max_loss_db": max((abs(ev.magnitude_db) for ev in events), default=0.0),
+            "fiber_length_km": max((ev.z_km for ev in events), default=0.0),
+        }
 
         return {
             "detection_result": detection_result,
-            "clustered_events": clustered_events,
+            "clustered_events": events,
             "event_stats": event_stats,
             "distance_km": distance_km,
             "test_data": test_data,

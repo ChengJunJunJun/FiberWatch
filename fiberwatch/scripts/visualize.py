@@ -20,7 +20,6 @@ import numpy as np
 
 from fiberwatch.core import Detector, DetectorConfig
 from fiberwatch.utils.data_io import create_distance_axis, load_test_data
-from fiberwatch.utils.event_processing import cluster_events
 from fiberwatch.utils.visualization import (
     create_bend_comparison_plot,
     save_all_plots,
@@ -121,14 +120,7 @@ def run_visualization(
     result = detector.detect(test_data)
     print(f"Detected {len(result.events)} raw events (original)")
 
-    # Cluster events
-    cluster_distance = config.detection.distance_cluster_m if config else 5.0
-
-    clustered_events = cluster_events(
-        result.events,
-        distance_threshold_m=cluster_distance,
-    )
-    print(f"After clustering: {len(clustered_events)} events (original)")
+    clustered_events = result.events
 
     # CNN local bend detection
     # 逻辑：先对原始数据做完整检测，如果发现弯折事件且提供了CNN文件，
