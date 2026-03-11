@@ -11,7 +11,6 @@ from .settings import (
     WebConfig,
     get_default_config,
     load_config,
-    save_config,
 )
 
 __all__ = [
@@ -20,5 +19,4 @@ __all__ = [
     "WebConfig",
     "get_default_config",
     "load_config",
-    "save_config",
 ]

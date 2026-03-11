@@ -16,7 +16,7 @@ import numpy as np
 from ..config.llm_config import LLMConfig
 
 if TYPE_CHECKING:
-    from ..core.detector import DetectionResult
+    from ..core.models import DetectionResult
 
 
 SYSTEM_PROMPT = """\

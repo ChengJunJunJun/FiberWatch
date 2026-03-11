@@ -11,7 +11,7 @@ import streamlit as st
 from fiberwatch.config import get_default_config
 
 # Import FiberWatch components
-from fiberwatch.core import Detector, DetectorConfig
+from fiberwatch.core import Detector
 from fiberwatch.utils.data_io import create_distance_axis, parse_uploaded_file
 from fiberwatch.web.ui_components import (
     render_analysis_results,
@@ -103,30 +103,16 @@ def _run_analysis(params: dict, config) -> dict:
                 )
                 baseline_data = np.interp(distance_km, baseline_distance, baseline_data)
 
-        # Create detector configuration
-        detector_config = DetectorConfig(
-            refl_min_db=params["refl_min_db"],
-            step_min_db=params["step_min_db"],
-            slope_min_db_per_km=params["slope_min_db"],
-            min_event_separation=params["min_event_separation"],
-        )
-
         # Run detection
-        sample_rate_per_km = None
-        if params["total_distance_km"] > 0:
-            sample_rate_per_km = test_data.size / float(params["total_distance_km"])
+        sample_spacing_km = params["total_distance_km"] / test_data.size if test_data.size > 0 else 0.0025545
 
         detector = Detector(
-            distance_km=distance_km,
+            trace_db=test_data,
             baseline=baseline_data,
-            config=detector_config,
-            sample_rate_per_km=sample_rate_per_km,
+            sample_spacing_km=sample_spacing_km,
         )
 
-        detection_result = detector.detect(
-            test_data,
-            sample_rate_per_km=sample_rate_per_km,
-        )
+        detection_result = detector.detect(test_data)
 
         events = detection_result.events
 

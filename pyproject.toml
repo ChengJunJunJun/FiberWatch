@@ -37,6 +37,7 @@ dependencies = [
     "scipy>=1.8.0",
     "matplotlib>=3.5.0",
     "pandas>=1.4.0",
+    "pyyaml>=6.0",
     "streamlit>=1.29.0",
     "openai>=1.0.0",
 ]
@@ -51,7 +52,6 @@ Changelog = "https://github.com/fiberwatch/fiberwatch/blob/main/CHANGELOG.md"
 [project.scripts]
 fiberwatch = "fiberwatch.scripts.cli:main"
 fiberwatch-visualize = "fiberwatch.scripts.visualize:main"
-fiberwatch-evaluate ="fiberwatch.scripts.evaluate_dataset:main"
 fiberwatch-web = "fiberwatch.web.app:main"
 fiberwatch-llm = "fiberwatch.scripts.visualize_with_llm:main"
 
@@ -81,7 +81,7 @@ include = ["fiberwatch*"]
 exclude = ["tests*"]
 
 [tool.setuptools.package-data]
-fiberwatch = ["config/*.json", "web/static/*"]
+fiberwatch = ["config/*.yaml", "web/static/*"]
 
 # Development tools configuration
 [tool.black]

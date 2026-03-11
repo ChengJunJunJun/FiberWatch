@@ -1,0 +1,108 @@
+# ============================================================
+#  FiberWatch OTDR 检测算法参数配置
+#  修改此文件即可调整检测行为，无需改动代码
+#  距离参数单位：km  |  幅度参数单位：dB
+# ============================================================
+
+# ── 采样间距 ──
+sample_spacing_km: 0.0025545 # 约 2.55 m
+
+# ── 反射峰相关 ──
+peak_local_region_km: 0.1
+peak_prominence_std_factor: 2.0
+peak_width_km: [0.0128, 0.0383]
+min_peak_height_db: 0.5
+peak_min_prominence_db: 0.5
+
+# ── 反射峰查找内部参数 ──
+peak_min_local_data_count: 10
+peak_search_left_extra_km: 0.0127725 # 原 5 samples
+peak_merge_distance_km: 0.0127725 # 原 5 samples
+peak_merge_height_diff_db: 0.1
+
+# ── 反射峰高度阈值 ──
+peak_high_threshold_db: 10.9
+peak_low_threshold_db: 8.0
+
+# ── 峰左右基线差异判断 ──
+peak_step_match_rel_tol: 0.3
+peak_step_match_abs_tol: 0.3
+peak_no_step_threshold_db: 0.5
+peak_bend_min_prominence_db: 2
+peak_step_search_range_km: 0.05
+peak_step_local_min_range_km: 0.0383175 # 原 15 samples
+peak_step_match_tolerance_km: 0.0076635 # 原 3 samples
+
+# ── 阶梯下降相关 ──
+step_drop_severe_db: 1.3
+step_drop_normal_db: 0.2
+step_compare_window_km: 0.05
+step_min_slope_db_per_km: 10.0
+
+# ── 宽范围阶梯下降检测 ──
+wide_step_offset_km: 0.1
+wide_step_window_km: 0.08
+
+# ── 弯折检测 - 高台阶稳定性 ──
+bend_plateau_window_km: 0.05
+bend_plateau_max_std_db: 1.0
+bend_plateau_max_range_db: 1.5
+plateau_min_gap_km: 0.0076635 # 原 3 samples
+plateau_min_data_count: 5
+
+# ── 噪声区域判断 ──
+noise_floor_db: -25.0
+noise_std_threshold: 2.0
+noise_check_window_km: 0.128
+severe_break_noise_std: 3
+noise_check_offset_km: 0.0127725 # 原 5 samples
+min_noise_segment_count: 10
+
+# ── 严重断纤参数 ──
+severe_min_peak_db: 5.0
+severe_min_lr_diff_db: 3.0
+severe_peak_context_km: 0.05109 # 原 20 samples
+
+# ── 下降终点搜索参数 ──
+descent_smooth_window: 3
+descent_min_db: 0.1
+descent_patience: 5
+descent_max_search_km: 0.2554 # 原 100 samples
+descent_min_window: 7
+
+# ── 普通断纤参数 ──
+break_step_drop_db: 0.72
+break_no_peak_radius_km: 0.1
+break_no_peak_min_height_db: 5.0
+break_pre_peak_left_km: 0.025545 # 原 10 samples
+
+# ── 小峰断纤参数 ──
+low_peak__threshold_db: 5
+min_peak__threshold_db: 0.6
+small_peak_nearby_radius_km: 0.05
+small_peak_similar_radius_km: 0.25
+small_peak_width_km: [0.0076635, 0.0383175] # 原 (3, 15) samples
+small_peak_flat_len_km: 0.025545 # 原 10 samples
+small_peak_flat_threshold_db: 0.3
+
+# ── 密集峰群参数 ──
+cluster_max_gap_km: 0.5
+cluster_min_size: 2
+cluster_min_peak_height_db: 2.0
+
+# ── 范围控制 ──
+end_region_ratio: 0.15
+skip_start_km: 0.1
+skip_end_km: 2.0
+offset_samples_km: 0.1
+
+# ── detect 主流程 ──
+lookback_km: 0.0894075 # 原 35 samples
+overlap_tolerance_km: 0.0127725 # 原 5 samples
+refl_height_db: 6.0
+refl_threshold_db: 6.0
+first_peak_max_km: 0.05
+noise_margin_km: 0.1
+
+# ── 基线拟合 ──
+baseline_poly_degree: 3

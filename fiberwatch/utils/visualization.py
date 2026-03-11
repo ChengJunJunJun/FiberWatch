@@ -12,7 +12,7 @@ from typing import List, Optional, Union
 import matplotlib.pyplot as plt
 import numpy as np
 
-from ..core.detector import DetectedEvent, DetectionResult
+from ..core.models import DetectedEvent, DetectionResult
 
 
 def plot_raw_trace(
@@ -497,3 +497,43 @@ def save_all_plots(
     plt.close(fig_simple)
 
     return saved_files
+
+
+def plot_detection_result(
+    result: DetectionResult, outfile: str | None = None
+) -> plt.Figure:
+    """绘制检测结果的简要图（原 DetectionResult.plot）。"""
+    z = result.distance_km
+    y = result.trace_db
+    b = result.baseline_db
+    y_min = np.nanmin(y)
+    fig = plt.figure(figsize=(10, 4))
+    plt.plot(z, y, label="trace (raw)")
+    plt.plot(z, b, "--", label="baseline")
+    for ev in result.events:
+        plt.axvline(ev.z_km, linestyle=":", alpha=0.6)
+        txt = f"{ev.kind} @ {ev.z_km:.4f}km"
+        plt.text(
+            ev.z_km,
+            y_min + 2,
+            txt,
+            rotation=90,
+            va="bottom",
+            fontsize=8,
+        )
+    for peak in result.reflection_peaks:
+        peak_z = float(z[peak["index"]])
+        plt.axvline(
+            peak_z,
+            linestyle="--",
+            color="lightsalmon",
+            alpha=0.4,
+            linewidth=0.7,
+        )
+    plt.xlabel("Distance (km)")
+    plt.ylabel("Return (dB)")
+    plt.legend()
+    plt.tight_layout()
+    if outfile:
+        plt.savefig(outfile, dpi=160)
+    return fig
