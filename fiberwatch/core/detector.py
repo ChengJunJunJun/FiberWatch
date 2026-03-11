@@ -85,6 +85,12 @@ class _NewDetectionConfig:
     min_peak_height_db: float = 0.5
     peak_min_prominence_db: float = 0.5
 
+    # ── 反射峰查找内部参数 ──
+    peak_min_local_data_count: int = 10
+    peak_search_left_extra_km: float = 0.0127725     # 原 5 samples
+    peak_merge_distance_km: float = 0.0127725        # 原 5 samples
+    peak_merge_height_diff_db: float = 0.1
+
     # ── 反射峰高度阈值 ──
     peak_high_threshold_db: float = 10.9
     peak_low_threshold_db: float = 8.0
@@ -94,6 +100,9 @@ class _NewDetectionConfig:
     peak_step_match_abs_tol: float = 0.3
     peak_no_step_threshold_db: float = 0.5
     peak_bend_min_prominence_db: float = 2
+    peak_step_search_range_km: float = 0.05
+    peak_step_local_min_range_km: float = 0.0383175   # 原 15 samples
+    peak_step_match_tolerance_km: float = 0.0076635  # 原 3 samples
 
     # ── 阶梯下降相关 ──
     step_drop_severe_db: float = 1.3
@@ -109,27 +118,62 @@ class _NewDetectionConfig:
     bend_plateau_window_km: float = 0.05
     bend_plateau_max_std_db: float = 1.0
     bend_plateau_max_range_db: float = 1.5
+    plateau_min_gap_km: float = 0.0076635             # 原 3 samples
+    plateau_min_data_count: int = 5
 
     # ── 噪声区域判断 ──
     noise_floor_db: float = -25.0
     noise_std_threshold: float = 2.0
     noise_check_window_km: float = 0.128
     severe_break_noise_std: float = 3
+    noise_check_offset_km: float = 0.0127725           # 原 5 samples
+    min_noise_segment_count: int = 10
+
+    # ── 严重断纤参数 ──
+    severe_min_peak_db: float = 5.0
+    severe_min_lr_diff_db: float = 3.0
+    severe_peak_context_km: float = 0.05109             # 原 20 samples
+
+    # ── 下降终点搜索参数 ──
+    descent_smooth_window: int = 3
+    descent_min_db: float = 0.1
+    descent_patience: int = 5
+    descent_max_search_km: float = 0.2554              # 原 100 samples
+    descent_min_window: int = 7
 
     # ── 普通断纤参数 ──
     break_step_drop_db: float = 0.72
     break_no_peak_radius_km: float = 0.1
     break_no_peak_min_height_db: float = 5.0
+    break_pre_peak_left_km: float = 0.025545            # 原 10 samples
 
     # ── 小峰断纤参数 ──
     low_peak__threshold_db: float = 5
     min_peak__threshold_db: float = 0.6
+    small_peak_nearby_radius_km: float = 0.05
+    small_peak_similar_radius_km: float = 0.25
+    small_peak_width_km: Tuple[float, float] = (0.0076635, 0.0383175)  # 原 (3, 15) samples
+    small_peak_flat_len_km: float = 0.025545           # 原 10 samples
+    small_peak_flat_threshold_db: float = 0.3
+
+    # ── 密集峰群参数 ──
+    cluster_max_gap_km: float = 0.5
+    cluster_min_size: int = 2
+    cluster_min_peak_height_db: float = 2.0
 
     # ── 范围控制 ──
     end_region_ratio: float = 0.15
     skip_start_km: float = 0.1
     skip_end_km: float = 2.0
     offset_samples_km: float = 0.1
+
+    # ── detect 主流程 ──
+    lookback_km: float = 0.0894075                    # 原 35 samples
+    overlap_tolerance_km: float = 0.0127725            # 原 5 samples
+    refl_height_db: float = 6.0
+    refl_threshold_db: float = 6.0
+    first_peak_max_km: float = 0.05
+    noise_margin_km: float = 0.1
 
     # ── 基线拟合 ──
     baseline_poly_degree: int = 3
@@ -166,27 +210,43 @@ class Detector:
             np.asarray(baseline, dtype=float) if baseline is not None else None
         )
 
-        # 预计算采样点数
-        self._step_window_samples = max(
-            1,
-            int(
-                math.ceil(self._new_cfg.step_compare_window_km / self.sample_spacing_km)
-            ),
-        )
-        self._peak_local_region_samples = max(
-            1,
-            int(math.ceil(self._new_cfg.peak_local_region_km / self.sample_spacing_km)),
-        )
-        self._noise_check_window_samples = max(
-            1,
-            int(
-                math.ceil(self._new_cfg.noise_check_window_km / self.sample_spacing_km)
-            ),
-        )
+        # 预计算采样点数（从 km 转换为 samples）
+        # _km2ceil: 原有参数保持 ceil（向上取整），保证行为不变
+        # _km2s: 新参数用 round（四舍五入），从精确点数转换而来
+        def _km2ceil(km: float, min_val: int = 1) -> int:
+            return max(min_val, int(math.ceil(km / self.sample_spacing_km)))
+
+        def _km2s(km: float, min_val: int = 1) -> int:
+            return max(min_val, round(km / self.sample_spacing_km))
+
+        self._step_window_samples = _km2ceil(self._new_cfg.step_compare_window_km)
+        self._peak_local_region_samples = _km2ceil(self._new_cfg.peak_local_region_km)
+        self._noise_check_window_samples = _km2ceil(self._new_cfg.noise_check_window_km)
         self._peak_width_samples = (
             max(1, int(self._new_cfg.peak_width_km[0] / self.sample_spacing_km)),
             max(2, int(self._new_cfg.peak_width_km[1] / self.sample_spacing_km)),
         )
+        self._peak_search_left_extra_samples = _km2s(self._new_cfg.peak_search_left_extra_km)
+        self._peak_merge_distance_samples = _km2s(self._new_cfg.peak_merge_distance_km)
+        self._noise_check_offset_samples = _km2s(self._new_cfg.noise_check_offset_km)
+        self._peak_step_search_range_samples = _km2s(self._new_cfg.peak_step_search_range_km)
+        self._peak_step_local_min_range_samples = _km2s(self._new_cfg.peak_step_local_min_range_km)
+        self._peak_step_match_tolerance_samples = _km2s(self._new_cfg.peak_step_match_tolerance_km)
+        self._plateau_min_gap_samples = _km2s(self._new_cfg.plateau_min_gap_km)
+        self._severe_peak_context_samples = _km2s(self._new_cfg.severe_peak_context_km)
+        self._descent_max_search_samples = _km2s(self._new_cfg.descent_max_search_km)
+        self._break_pre_peak_left_samples = _km2s(self._new_cfg.break_pre_peak_left_km)
+        self._small_peak_nearby_radius_samples = _km2s(self._new_cfg.small_peak_nearby_radius_km)
+        self._small_peak_similar_radius_samples = _km2s(self._new_cfg.small_peak_similar_radius_km)
+        self._small_peak_width_samples = (
+            _km2s(self._new_cfg.small_peak_width_km[0]),
+            _km2s(self._new_cfg.small_peak_width_km[1]),
+        )
+        self._small_peak_flat_len_samples = _km2s(self._new_cfg.small_peak_flat_len_km)
+        self._cluster_max_gap_samples = _km2s(self._new_cfg.cluster_max_gap_km)
+        self._lookback_samples = _km2s(self._new_cfg.lookback_km)
+        self._overlap_tolerance_samples = _km2s(self._new_cfg.overlap_tolerance_km)
+        self._noise_margin_samples = _km2s(self._new_cfg.noise_margin_km)
 
     # ── 基线拟合 ─────────────────────────────────────────────────
 
@@ -220,7 +280,7 @@ class Detector:
                 for j in range(local_start, local_end):
                     if abs(j - i) > max_width:
                         local_data.append(y[j])
-                if len(local_data) < 10:
+                if len(local_data) < self._new_cfg.peak_min_local_data_count:
                     local_data = list(y[local_start:local_end])
                 local_std = np.std(local_data)
 
@@ -228,7 +288,7 @@ class Detector:
                 left_idx = i - 1
                 while left_idx > 0 and y[left_idx] <= y[left_idx + 1]:
                     left_idx -= 1
-                search_left = max(0, left_idx - 5)
+                search_left = max(0, left_idx - self._peak_search_left_extra_samples)
                 for j in range(left_idx, search_left - 1, -1):
                     if y[j] < y[left_idx]:
                         left_idx = j
@@ -263,16 +323,14 @@ class Detector:
 
         # 合并相近的峰
         if len(peaks) > 1:
-            merge_distance_samples = 5
-            merge_height_diff_db = 0.1
             merged_peaks = [peaks[0]]
             for current_peak in peaks[1:]:
                 last_peak = merged_peaks[-1]
                 distance_samples = current_peak["index"] - last_peak["index"]
                 height_diff = abs(current_peak["height"] - last_peak["height"])
                 if (
-                    distance_samples <= merge_distance_samples
-                    and height_diff <= merge_height_diff_db
+                    distance_samples <= self._peak_merge_distance_samples
+                    and height_diff <= self._new_cfg.peak_merge_height_diff_db
                 ):
                     if current_peak["height"] > last_peak["height"]:
                         merged_peaks[-1] = current_peak
@@ -299,7 +357,7 @@ class Detector:
                 if cluster_start_idx is not None:
                     last_peak = end_region_peaks[-1]
                     noise_check_start = min(
-                        last_peak.get("right_base_index", last_peak["index"]) + 5,
+                        last_peak.get("right_base_index", last_peak["index"]) + self._noise_check_offset_samples,
                         n - 1,
                     )
                     if self._check_enters_noise_region(y, noise_check_start):
@@ -313,7 +371,7 @@ class Detector:
         local_max_idx = np.argmax(end_region)
         global_max_idx = end_region_start + local_max_idx
 
-        check_start = min(global_max_idx + 5, n)
+        check_start = min(global_max_idx + self._noise_check_offset_samples, n)
         if check_start < n:
             tail = y[check_start:]
             if len(tail) >= self._noise_check_window_samples:
@@ -332,7 +390,7 @@ class Detector:
         n = len(y)
         cfg = self._new_cfg
         check_end = min(start_idx + self._noise_check_window_samples, n)
-        if check_end - start_idx < 10:
+        if check_end - start_idx < cfg.min_noise_segment_count:
             return False
         segment = y[start_idx:check_end]
         seg_mean = float(np.mean(segment))
@@ -343,26 +401,23 @@ class Detector:
         self, y: np.ndarray, peaks: List[dict]
     ) -> Optional[int]:
         """查找密集峰群的起始索引。"""
-        max_gap_km = 0.5
-        min_cluster_size = 2
-        min_peak_height_db = 2.0
-        max_gap_samples = int(max_gap_km / self.sample_spacing_km)
+        cfg = self._new_cfg
 
-        valid_peaks = [p for p in peaks if p["peak_height_db"] >= min_peak_height_db]
-        if len(valid_peaks) < min_cluster_size:
+        valid_peaks = [p for p in peaks if p["peak_height_db"] >= cfg.cluster_min_peak_height_db]
+        if len(valid_peaks) < cfg.cluster_min_size:
             return None
 
         cluster_peaks = [valid_peaks[0]]
         for i in range(1, len(valid_peaks)):
             gap = valid_peaks[i]["index"] - valid_peaks[i - 1]["index"]
-            if gap <= max_gap_samples:
+            if gap <= self._cluster_max_gap_samples:
                 cluster_peaks.append(valid_peaks[i])
             else:
-                if len(cluster_peaks) >= min_cluster_size:
+                if len(cluster_peaks) >= cfg.cluster_min_size:
                     break
                 cluster_peaks = [valid_peaks[i]]
 
-        if len(cluster_peaks) >= min_cluster_size:
+        if len(cluster_peaks) >= cfg.cluster_min_size:
             return cluster_peaks[0]["index"]
         return None
 
@@ -449,9 +504,8 @@ class Detector:
         cfg = self._new_cfg
         n = len(y)
 
-        search_range_km = 0.05
-        search_range_samples = max(1, int(search_range_km / self.sample_spacing_km))
-        local_min_range_samples = 15
+        search_range_samples = self._peak_step_search_range_samples
+        local_min_range_samples = self._peak_step_local_min_range_samples
 
         search_start = max(0, step_idx - search_range_samples)
         search_end = min(n, step_idx + search_range_samples)
@@ -480,7 +534,7 @@ class Detector:
 
         causing_peak = None
         for peak in peaks:
-            if abs(peak["index"] - local_max_idx) <= 3:
+            if abs(peak["index"] - local_max_idx) <= self._peak_step_match_tolerance_samples:
                 causing_peak = peak
                 break
 
@@ -508,7 +562,7 @@ class Detector:
             10, int(cfg.bend_plateau_window_km / self.sample_spacing_km)
         )
 
-        gap_samples = max(3, self._step_window_samples // 4)
+        gap_samples = max(self._plateau_min_gap_samples, self._step_window_samples // 4)
         plateau_end = max(0, step_idx - gap_samples)
         plateau_start = max(0, plateau_end - window_samples)
 
@@ -516,7 +570,7 @@ class Detector:
             return False, float("inf"), float("inf")
 
         plateau_data = y[plateau_start:plateau_end]
-        if len(plateau_data) < 5:
+        if len(plateau_data) < cfg.plateau_min_data_count:
             return False, float("inf"), float("inf")
 
         std_db = float(np.std(plateau_data))
@@ -534,28 +588,20 @@ class Detector:
         self,
         y: np.ndarray,
         peak: dict,
-        *,
-        min_peak_db: float = 5.0,
-        min_left_right_min_diff_db: float = 3,
-        right_check_samples: int = 15,
-        deriv_spike_db_per_sample: float = 0.6,
-        max_sign_flips: int = 6,
-        max_spike_ratio: float = 0.25,
-        smooth_window: int = 3,
-        min_descent_db: float = 0.1,
-        max_search_samples: int = 100,
     ) -> Tuple[bool, dict]:
         """严重断纤判定（基于下降趋势搜索）。"""
+        cfg = self._new_cfg
         n = len(y)
         peak_idx = int(peak["index"])
 
         peak_height = float(peak.get("peak_height_db", 0.0))
         if peak_height <= 0:
-            s0 = max(0, peak_idx - 20)
-            s1 = min(n, peak_idx + 21)
+            ctx = self._severe_peak_context_samples
+            s0 = max(0, peak_idx - ctx)
+            s1 = min(n, peak_idx + ctx + 1)
             peak_height = float(y[peak_idx] - np.mean(y[s0:s1]))
 
-        if peak_height < min_peak_db:
+        if peak_height < cfg.severe_min_peak_db:
             return False, {
                 "reason": "peak_not_high_enough",
                 "peak_height_db": peak_height,
@@ -565,22 +611,16 @@ class Detector:
             y,
             peak_idx,
             direction=-1,
-            smooth_window=smooth_window,
-            min_descent_db=min_descent_db,
-            max_search=max_search_samples,
         )
         right_idx, right_min = self._find_descent_end(
             y,
             peak_idx,
             direction=+1,
-            smooth_window=smooth_window,
-            min_descent_db=min_descent_db,
-            max_search=max_search_samples,
         )
 
         min_diff = left_min - right_min
 
-        if min_diff <= min_left_right_min_diff_db:
+        if min_diff <= cfg.severe_min_lr_diff_db:
             return False, {
                 "reason": "left_right_min_diff_too_small",
                 "left_min_idx": left_idx,
@@ -605,13 +645,15 @@ class Detector:
         start_idx: int,
         *,
         direction: int = 1,
-        smooth_window: int = 3,
-        min_descent_db: float = 0.1,
-        patience: int = 5,
-        max_search: int = 100,
-        min_window: int = 7,
     ) -> Tuple[int, float]:
         """从 start_idx 沿 direction 搜索下降终点，返回窗口均值最小的位置。"""
+        cfg = self._new_cfg
+        smooth_window = cfg.descent_smooth_window
+        min_descent_db = cfg.descent_min_db
+        patience = cfg.descent_patience
+        max_search = self._descent_max_search_samples
+        min_window = cfg.descent_min_window
+
         n = len(y)
         if n == 0:
             return start_idx, float("nan")
@@ -689,16 +731,7 @@ class Detector:
             peak_idx = int(peak["index"])
             z_km = float(self.z[peak_idx])
 
-            ok, info = self._is_severe_break_by_peak_profile(
-                y,
-                peak,
-                min_peak_db=5.0,
-                min_left_right_min_diff_db=3,
-                right_check_samples=30,
-                deriv_spike_db_per_sample=0.6,
-                max_sign_flips=6,
-                max_spike_ratio=0.25,
-            )
+            ok, info = self._is_severe_break_by_peak_profile(y, peak)
             if ok:
                 events.append(
                     DetectedEvent(
@@ -795,7 +828,7 @@ class Detector:
         if lookahead_samples is None:
             lookahead_samples = self._step_window_samples
 
-        left = max(0, drop_idx - 10)
+        left = max(0, drop_idx - self._break_pre_peak_left_samples)
         print(left)
         right = min(scan_end, drop_idx + lookahead_samples)
         segment = y[left:right]
@@ -840,10 +873,8 @@ class Detector:
         扫描小峰断纤。
         before_idx 不为 None 时，只考虑 index < before_idx 的峰。
         """
-        radius_km = 0.05
-        radius2_km = 0.25
-        radius_samples = max(1, int(math.ceil(radius_km / self.sample_spacing_km)))
-        radius2_samples = max(1, int(math.ceil(radius2_km / self.sample_spacing_km)))
+        radius_samples = self._small_peak_nearby_radius_samples
+        radius2_samples = self._small_peak_similar_radius_samples
 
         for peak in valid_peaks:
             peak_idx = peak["index"]
@@ -880,12 +911,13 @@ class Detector:
             if has_similar_peak:
                 continue
             peak_width = peak.get("peak_width", 0)
-            if not (3 <= peak_width <= 15):
+            min_pw, max_pw = self._small_peak_width_samples
+            if not (min_pw <= peak_width <= max_pw):
                 continue
             # ── 新增：峰左起点外侧必须有10个点的平稳区域 ──
             left_base = peak.get("left_base_index", peak_idx)
-            flat_len = 10
-            flat_threshold_db = 0.3  # 平稳判定阈值，可按需调整
+            flat_len = self._small_peak_flat_len_samples
+            flat_threshold_db = cfg.small_peak_flat_threshold_db
 
             # 左侧平稳：left_base 往左10个点
             left_start = left_base - flat_len
@@ -1084,7 +1116,7 @@ class Detector:
         """
         y = np.asarray(trace_db, dtype=float)
         cfg = self._new_cfg
-        LOOKBACK = 35
+        LOOKBACK = self._lookback_samples
 
         # 基线处理
         if self.baseline is None:
@@ -1176,40 +1208,34 @@ class Detector:
         events.sort(key=lambda e: e.index)
 
         # ── 反射峰检测 ──
-        _OVERLAP_TOLERANCE = 5
-        _REFL_HEIGHT_DB = 6.0
-        _REFL_THRESHOLD_DB = 6.0
-        _FIRST_PEAK_NEARBY_KM = 0.3
         event_indices = [e.index for e in events]
 
         # 1) 起始处第一个峰一定是反射峰，紧随其后的第二个峰也是
         first_peak_indices: set[int] = set()
-        _FIRST_PEAK_MAX_KM = 0.05  # 50m
         if all_peaks:
             peak_km = all_peaks[0]["index"] * self.sample_spacing_km
-            if peak_km <= _FIRST_PEAK_MAX_KM:
+            if peak_km <= cfg.first_peak_max_km:
                 first_peak_indices.add(all_peaks[0]["index"])
 
         # 2) 构建反射峰列表
         reflection_peaks = []
         for p in all_peaks:
             pidx = p["index"]
-            # 噪声区之后 100m 截断
-            _noise_margin_samples = int(0.1 / self.sample_spacing_km)
-            if pidx >= effective_end + _noise_margin_samples:
+            # 噪声区之后截断
+            if pidx >= effective_end + self._noise_margin_samples:
                 break
             # 起始处的峰直接纳入
             if pidx in first_peak_indices:
                 reflection_peaks.append(p)
                 continue
             # 与已检测事件重合则跳过
-            if any(abs(pidx - ei) <= _OVERLAP_TOLERANCE for ei in event_indices):
+            if any(abs(pidx - ei) <= self._overlap_tolerance_samples for ei in event_indices):
                 continue
             # 常规阈值判断
             if (
-                p["height"] - baseline[pidx] > _REFL_HEIGHT_DB
-                and p["peak_height_db"] > _REFL_THRESHOLD_DB
-                and p["height"] - y[p["right_base_index"]] > _REFL_THRESHOLD_DB
+                p["height"] - baseline[pidx] > cfg.refl_height_db
+                and p["peak_height_db"] > cfg.refl_threshold_db
+                and p["height"] - y[p["right_base_index"]] > cfg.refl_threshold_db
             ):
                 reflection_peaks.append(p)
 
