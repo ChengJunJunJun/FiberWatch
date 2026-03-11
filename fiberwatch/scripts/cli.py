@@ -140,7 +140,6 @@ def _run_visualize(args, config):
         output_dir=args.output,
         sample_spacing_km=args.sample_spacing_km,
         save_plots=not args.no_save,
-        config=config,
     )
 
 
