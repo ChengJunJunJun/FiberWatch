@@ -19,7 +19,6 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    %(prog)s analyze data/test.txt --output results/
     %(prog)s visualize data/test.txt --baseline data/baseline.txt
     %(prog)s web
     %(prog)s --version
@@ -38,14 +37,6 @@ Examples:
         help="Available commands",
         metavar="COMMAND",
     )
-
-    # Analyze command
-    analyze_parser = subparsers.add_parser(
-        "analyze",
-        help="Analyze OTDR data file",
-        description="Run OTDR event detection on a data file",
-    )
-    _add_analyze_args(analyze_parser)
 
     # Visualize command
     visualize_parser = subparsers.add_parser(
@@ -85,9 +76,7 @@ Examples:
 
     # Execute command
     try:
-        if args.command == "analyze":
-            _run_analyze(args, config)
-        elif args.command == "visualize":
+        if args.command == "visualize":
             _run_visualize(args, config)
         elif args.command == "web":
             _run_web(args, config)
@@ -99,35 +88,6 @@ Examples:
             raise
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-
-
-def _add_analyze_args(parser):
-    """Add arguments for analyze command."""
-    parser.add_argument("--input_file", type=Path, help="Input OTDR data file")
-
-    parser.add_argument("--baseline", type=Path, help="Baseline reference file")
-
-    parser.add_argument(
-        "--output",
-        "-o",
-        type=Path,
-        default="output",
-        help="Output directory (default: output)",
-    )
-
-    parser.add_argument(
-        "--distance",
-        type=float,
-        default=20.0,
-        help="Fiber length in km (default: 20.0)",
-    )
-
-    parser.add_argument(
-        "--format",
-        choices=["csv", "json"],
-        default="csv",
-        help="Output format for results (default: csv)",
-    )
 
 
 def _add_visualize_args(parser):
@@ -152,7 +112,9 @@ def _add_visualize_args(parser):
     )
 
     parser.add_argument(
-        "--no-save", action="store_true", help="Don't save plots to files",
+        "--no-save",
+        action="store_true",
+        help="Don't save plots to files",
     )
 
 
@@ -167,21 +129,6 @@ def _add_web_args(parser):
     )
 
 
-def _run_analyze(args, config):
-    """Run analyze command."""
-    # Import here to avoid circular imports
-    from .analyze import run_analysis
-
-    run_analysis(
-        input_file=args.input_file,
-        baseline_file=args.baseline,
-        output_dir=args.output,
-        distance_km=args.distance,
-        output_format=args.format,
-        config=config,
-    )
-
-
 def _run_visualize(args, config):
     """Run visualize command."""
     # Import here to avoid circular imports
@@ -191,9 +138,8 @@ def _run_visualize(args, config):
         input_file=args.input_file,
         baseline_file=args.baseline,
         output_dir=args.output,
-        distance_km=args.distance,
+        sample_spacing_km=args.sample_spacing_km,
         save_plots=not args.no_save,
-        config=config,
     )
 
 

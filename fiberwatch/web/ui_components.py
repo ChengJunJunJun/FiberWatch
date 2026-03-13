@@ -95,54 +95,6 @@ def render_sidebar(config) -> Dict[str, Any]:
         else:
             output_dir = config.web.default_output_dir
 
-        st.markdown("### 🔬 高级参数")
-
-        # Advanced parameters in expander
-        with st.expander("检测算法参数", expanded=False):
-            st.markdown("**阈值设置**")
-            refl_min_db = st.slider(
-                "反射阈值 (dB)",
-                0.2,
-                5.0,
-                config.detection.refl_min_db,
-                0.1,
-                help="检测反射峰的最小阈值",
-            )
-            step_min_db = st.slider(
-                "台阶阈值 (dB)",
-                0.02,
-                1.0,
-                config.detection.step_min_db,
-                0.01,
-                help="检测台阶损耗的最小阈值",
-            )
-            slope_min_db = st.slider(
-                "斜率阈值 (dB/km)",
-                0.01,
-                0.5,
-                config.detection.slope_min_db_per_km,
-                0.01,
-                help="检测斜率变化的最小阈值",
-            )
-
-            st.markdown("**聚类参数**")
-            min_event_separation = st.slider(
-                "最小事件分离 (采样点)",
-                5,
-                200,
-                config.detection.min_event_separation,
-                1,
-                help="相邻事件的最小分离距离",
-            )
-            distance_cluster_m = st.slider(
-                "事件聚类距离 (m)",
-                1.0,
-                50.0,
-                config.detection.distance_cluster_m,
-                1.0,
-                help="事件聚类的距离阈值",
-            )
-
         # Run button
         run_analysis = st.button("运行检测", type="primary", width=True)
 
@@ -153,11 +105,6 @@ def render_sidebar(config) -> Dict[str, Any]:
         "series_name": series_name,
         "save_images": save_images,
         "output_dir": output_dir,
-        "refl_min_db": refl_min_db,
-        "step_min_db": step_min_db,
-        "slope_min_db": slope_min_db,
-        "min_event_separation": min_event_separation,
-        "distance_cluster_m": distance_cluster_m,
         "run_analysis": run_analysis,
     }
 

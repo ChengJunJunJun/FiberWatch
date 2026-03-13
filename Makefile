@@ -58,8 +58,6 @@ dev: install-dev  ## Setup development environment
 web:  ## Launch web interface
 	fiberwatch web
 
-analyze:  ## Example analysis command
-	fiberwatch analyze data/UPC_dataset/normal_dirty.txt --baseline data/UPC_dataset/normal_clean.txt
 
 visualize:  ## Example visualization command
 	fiberwatch visualize data/UPC_dataset/normal_dirty.txt --baseline data/UPC_dataset/normal_clean.txt

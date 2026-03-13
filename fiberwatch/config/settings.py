@@ -1,89 +1,176 @@
 """
 Configuration settings and management for FiberWatch.
 
-This module defines all configurable parameters and provides
-functions for loading, saving, and validating configurations.
+This module defines all configurable parameters. Detection parameters
+are loaded from detection.yaml by default.
 """
 
-from dataclasses import dataclass, asdict
-from pathlib import Path
-from typing import Dict, Any, Optional, Union
-import json
-import os
+from __future__ import annotations
 
+import os
+from dataclasses import dataclass, field, fields
+from pathlib import Path
+from typing import Any, Optional
+
+import yaml
+
+# ── 加载 YAML 默认值 ─────────────────────────────────────────────
+
+_YAML_PATH = Path(__file__).parent / "detection.yaml"
+
+def _load_yaml_defaults() -> dict:
+    """从 detection.yaml 读取默认参数。"""
+    if _YAML_PATH.exists():
+        with _YAML_PATH.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        # YAML 中 list 需要转成 tuple（与 dataclass 字段类型一致）
+        for key in ("peak_width_km", "small_peak_width_km"):
+            if key in data and isinstance(data[key], list):
+                data[key] = tuple(data[key])
+        return data
+    return {}
+
+
+_YAML_DEFAULTS: dict = _load_yaml_defaults()
+
+
+def _yd(key: str, fallback):
+    """从 YAML 默认值字典中获取值，不存在则用 fallback。"""
+    return _YAML_DEFAULTS.get(key, fallback)
+
+
+# ── 检测配置 ─────────────────────────────────────────────────────
 
 @dataclass
 class DetectionConfig:
-    """Configuration for OTDR event detection algorithms."""
+    """OTDR 事件检测算法的全部可调参数。
 
-    # Smoothing parameters
-    smooth_win: int = 21
-    smooth_poly: int = 3
+    默认值从 config/detection.yaml 加载；也可直接传参覆盖。
+    """
 
-    # Event detection thresholds
-    refl_min_db: float = 1.0
-    step_min_db: float = 0.05
-    slope_min_db_per_km: float = 0.02
-    min_event_separation: int = 30
+    # ── 采样间距 ──
+    sample_spacing_km: float = field(default_factory=lambda: _yd("sample_spacing_km", 0.0025545))
 
-    # Break detection parameters
-    pre_window_km: float = 0.30
-    pre_end_offset_km: float = 0.025
-    tail_start_offset_km: float = 0.05
-    tail_end_offset_km: float = 0.55
-    min_signal_drop_db: float = 5.0
-    noise_floor_db: float = -80.0
-    min_noise_increase: float = 1.5
-    min_zero_crossing_ratio: float = 0.05
-    min_tail_segment_len_km: float = 0.075
-    grad_sigma_factor: float = 3.0
-    min_grad_abs: float = 0.005
+    # ── 反射峰相关 ──
+    peak_local_region_km: float = field(default_factory=lambda: _yd("peak_local_region_km", 0.1))
+    peak_prominence_std_factor: float = field(default_factory=lambda: _yd("peak_prominence_std_factor", 2.0))
+    peak_width_km: tuple = field(default_factory=lambda: _yd("peak_width_km", (0.0128, 0.0383)))
+    min_peak_height_db: float = field(default_factory=lambda: _yd("min_peak_height_db", 0.5))
+    peak_min_prominence_db: float = field(default_factory=lambda: _yd("peak_min_prominence_db", 0.5))
 
-    # Dirty connector detection
-    dirty_grad_sigma_factor: float = 6.0
-    min_dirty_grad_abs: float = 0.001
-    step_window_km: float = 0.15
-    dirty_min_step_db: float = 1.5
-    dirty_exclusion_before_break_km: float = 0.5
-    dirty_duplicate_skip_km: float = 0.025
+    # ── 反射峰查找内部参数 ──
+    peak_min_local_data_count: int = field(default_factory=lambda: _yd("peak_min_local_data_count", 10))
+    peak_search_left_extra_km: float = field(default_factory=lambda: _yd("peak_search_left_extra_km", 0.0127725))
+    peak_merge_distance_km: float = field(default_factory=lambda: _yd("peak_merge_distance_km", 0.0127725))
+    peak_merge_height_diff_db: float = field(default_factory=lambda: _yd("peak_merge_height_diff_db", 0.1))
 
-    # Bend detection
-    bend_grad_sigma_factor: float = 2.0
-    min_bend_grad_abs: float = 0.0005
-    bend_pair_max_gap_km: float = 0.125
-    bend_min_step_db: float = 0.05
-    bend_max_step_db: float = 1.2
-    bend_step_window_km: float = 0.075
-    bend_min_descent_len_km: float = 0.05
-    bend_dirty_exclusion_km: float = 0.5
+    # ── 反射峰高度阈值 ──
+    peak_high_threshold_db: float = field(default_factory=lambda: _yd("peak_high_threshold_db", 10.9))
+    peak_low_threshold_db: float = field(default_factory=lambda: _yd("peak_low_threshold_db", 8.0))
 
-    # Event clustering
-    distance_cluster_m: float = 5.0
+    # ── 峰左右基线差异判断 ──
+    peak_step_match_rel_tol: float = field(default_factory=lambda: _yd("peak_step_match_rel_tol", 0.3))
+    peak_step_match_abs_tol: float = field(default_factory=lambda: _yd("peak_step_match_abs_tol", 0.3))
+    peak_no_step_threshold_db: float = field(default_factory=lambda: _yd("peak_no_step_threshold_db", 0.5))
+    peak_bend_min_prominence_db: float = field(default_factory=lambda: _yd("peak_bend_min_prominence_db", 2))
+    peak_step_search_range_km: float = field(default_factory=lambda: _yd("peak_step_search_range_km", 0.05))
+    peak_step_local_min_range_km: float = field(default_factory=lambda: _yd("peak_step_local_min_range_km", 0.0383175))
+    peak_step_match_tolerance_km: float = field(default_factory=lambda: _yd("peak_step_match_tolerance_km", 0.0076635))
+
+    # ── 阶梯下降相关 ──
+    step_drop_severe_db: float = field(default_factory=lambda: _yd("step_drop_severe_db", 1.3))
+    step_drop_normal_db: float = field(default_factory=lambda: _yd("step_drop_normal_db", 0.2))
+    step_compare_window_km: float = field(default_factory=lambda: _yd("step_compare_window_km", 0.05))
+    step_min_slope_db_per_km: float = field(default_factory=lambda: _yd("step_min_slope_db_per_km", 10.0))
+
+    # ── 宽范围阶梯下降检测 ──
+    wide_step_offset_km: float = field(default_factory=lambda: _yd("wide_step_offset_km", 0.1))
+    wide_step_window_km: float = field(default_factory=lambda: _yd("wide_step_window_km", 0.08))
+
+    # ── 弯折检测 - 高台阶稳定性 ──
+    bend_plateau_window_km: float = field(default_factory=lambda: _yd("bend_plateau_window_km", 0.05))
+    bend_plateau_max_std_db: float = field(default_factory=lambda: _yd("bend_plateau_max_std_db", 1.0))
+    bend_plateau_max_range_db: float = field(default_factory=lambda: _yd("bend_plateau_max_range_db", 1.5))
+    plateau_min_gap_km: float = field(default_factory=lambda: _yd("plateau_min_gap_km", 0.0076635))
+    plateau_min_data_count: int = field(default_factory=lambda: _yd("plateau_min_data_count", 5))
+
+    # ── 噪声区域判断 ──
+    noise_floor_db: float = field(default_factory=lambda: _yd("noise_floor_db", -25.0))
+    noise_std_threshold: float = field(default_factory=lambda: _yd("noise_std_threshold", 2.0))
+    noise_check_window_km: float = field(default_factory=lambda: _yd("noise_check_window_km", 0.128))
+    severe_break_noise_std: float = field(default_factory=lambda: _yd("severe_break_noise_std", 3))
+    noise_check_offset_km: float = field(default_factory=lambda: _yd("noise_check_offset_km", 0.0127725))
+    min_noise_segment_count: int = field(default_factory=lambda: _yd("min_noise_segment_count", 10))
+
+    # ── 严重断纤参数 ──
+    severe_min_peak_db: float = field(default_factory=lambda: _yd("severe_min_peak_db", 5.0))
+    severe_min_lr_diff_db: float = field(default_factory=lambda: _yd("severe_min_lr_diff_db", 3.0))
+    severe_peak_context_km: float = field(default_factory=lambda: _yd("severe_peak_context_km", 0.05109))
+
+    # ── 下降终点搜索参数 ──
+    descent_smooth_window: int = field(default_factory=lambda: _yd("descent_smooth_window", 3))
+    descent_min_db: float = field(default_factory=lambda: _yd("descent_min_db", 0.1))
+    descent_patience: int = field(default_factory=lambda: _yd("descent_patience", 5))
+    descent_max_search_km: float = field(default_factory=lambda: _yd("descent_max_search_km", 0.2554))
+    descent_min_window: int = field(default_factory=lambda: _yd("descent_min_window", 7))
+
+    # ── 普通断纤参数 ──
+    break_step_drop_db: float = field(default_factory=lambda: _yd("break_step_drop_db", 0.72))
+    break_no_peak_radius_km: float = field(default_factory=lambda: _yd("break_no_peak_radius_km", 0.1))
+    break_no_peak_min_height_db: float = field(default_factory=lambda: _yd("break_no_peak_min_height_db", 5.0))
+    break_pre_peak_left_km: float = field(default_factory=lambda: _yd("break_pre_peak_left_km", 0.025545))
+
+    # ── 小峰断纤参数 ──
+    low_peak__threshold_db: float = field(default_factory=lambda: _yd("low_peak__threshold_db", 5))
+    min_peak__threshold_db: float = field(default_factory=lambda: _yd("min_peak__threshold_db", 0.6))
+    small_peak_nearby_radius_km: float = field(default_factory=lambda: _yd("small_peak_nearby_radius_km", 0.05))
+    small_peak_similar_radius_km: float = field(default_factory=lambda: _yd("small_peak_similar_radius_km", 0.25))
+    small_peak_width_km: tuple = field(default_factory=lambda: _yd("small_peak_width_km", (0.0076635, 0.0383175)))
+    small_peak_flat_len_km: float = field(default_factory=lambda: _yd("small_peak_flat_len_km", 0.025545))
+    small_peak_flat_threshold_db: float = field(default_factory=lambda: _yd("small_peak_flat_threshold_db", 0.3))
+
+    # ── 密集峰群参数 ──
+    cluster_max_gap_km: float = field(default_factory=lambda: _yd("cluster_max_gap_km", 0.5))
+    cluster_min_size: int = field(default_factory=lambda: _yd("cluster_min_size", 2))
+    cluster_min_peak_height_db: float = field(default_factory=lambda: _yd("cluster_min_peak_height_db", 2.0))
+
+    # ── 范围控制 ──
+    end_region_ratio: float = field(default_factory=lambda: _yd("end_region_ratio", 0.15))
+    skip_start_km: float = field(default_factory=lambda: _yd("skip_start_km", 0.1))
+    skip_end_km: float = field(default_factory=lambda: _yd("skip_end_km", 2.0))
+    offset_samples_km: float = field(default_factory=lambda: _yd("offset_samples_km", 0.1))
+
+    # ── detect 主流程 ──
+    lookback_km: float = field(default_factory=lambda: _yd("lookback_km", 0.0894075))
+    overlap_tolerance_km: float = field(default_factory=lambda: _yd("overlap_tolerance_km", 0.0127725))
+    refl_height_db: float = field(default_factory=lambda: _yd("refl_height_db", 6.0))
+    refl_threshold_db: float = field(default_factory=lambda: _yd("refl_threshold_db", 6.0))
+    first_peak_max_km: float = field(default_factory=lambda: _yd("first_peak_max_km", 0.05))
+    noise_margin_km: float = field(default_factory=lambda: _yd("noise_margin_km", 0.1))
+
+    # ── 基线拟合 ──
+    baseline_poly_degree: int = field(default_factory=lambda: _yd("baseline_poly_degree", 3))
 
     def validate(self) -> None:
         """Validate configuration parameters."""
-        if self.smooth_win <= 0 or self.smooth_win % 2 == 0:
-            raise ValueError("smooth_win must be positive and odd")
-        if self.smooth_poly < 1:
-            raise ValueError("smooth_poly must be at least 1")
-        if self.refl_min_db <= 0:
-            raise ValueError("refl_min_db must be positive")
-        if self.step_min_db <= 0:
-            raise ValueError("step_min_db must be positive")
-        if self.min_event_separation <= 0:
-            raise ValueError("min_event_separation must be positive")
-        if self.pre_window_km <= 0:
-            raise ValueError("pre_window_km must be positive")
-        if self.tail_end_offset_km <= self.tail_start_offset_km:
-            raise ValueError("tail_end_offset_km must exceed tail_start_offset_km")
-        if self.min_tail_segment_len_km <= 0:
-            raise ValueError("min_tail_segment_len_km must be positive")
-        if self.step_window_km <= 0:
-            raise ValueError("step_window_km must be positive")
-        if self.dirty_duplicate_skip_km <= 0:
-            raise ValueError("dirty_duplicate_skip_km must be positive")
-        if self.bend_min_descent_len_km <= 0:
-            raise ValueError("bend_min_descent_len_km must be positive")
+        if self.sample_spacing_km <= 0:
+            raise ValueError("sample_spacing_km must be positive")
+
+    @classmethod
+    def from_yaml(cls, yaml_path: str | Path) -> DetectionConfig:
+        """从指定 YAML 文件创建配置实例。"""
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            data: dict[str, Any] = yaml.safe_load(f) or {}
+        for key in ("peak_width_km", "small_peak_width_km"):
+            if key in data and isinstance(data[key], list):
+                data[key] = tuple(data[key])
+        # 先用默认值创建，再用 YAML 中的值覆盖
+        config = cls()
+        valid_keys = {fld.name for fld in fields(cls)}
+        for k, v in data.items():
+            if k in valid_keys:
+                setattr(config, k, v)
+        return config
 
 
 @dataclass
@@ -142,139 +229,34 @@ class AppConfig:
 
 
 def get_default_config() -> AppConfig:
-    """
-    Get default application configuration.
-
-    Returns:
-        Default AppConfig instance
-    """
+    """Get default application configuration."""
     return AppConfig(
         detection=DetectionConfig(),
         web=WebConfig(),
     )
 
 
-def load_config(config_path: Union[str, Path], validate: bool = True) -> AppConfig:
-    """
-    Load configuration from JSON file.
+def load_config(config_path: str | Path, validate: bool = True) -> AppConfig:
+    """从 YAML 配置文件加载应用配置。
 
     Args:
-        config_path: Path to configuration file
-        validate: Whether to validate the loaded config
+        config_path: 配置文件路径（YAML 格式）
+        validate: 是否验证加载的配置
 
     Returns:
-        Loaded AppConfig instance
-
-    Raises:
-        FileNotFoundError: If config file doesn't exist
-        ValueError: If config is invalid
+        加载后的 AppConfig 实例
     """
     config_path = Path(config_path)
 
     if not config_path.exists():
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
-    with config_path.open("r", encoding="utf-8") as f:
-        config_data = json.load(f)
+    # 直接复用 from_yaml 加载检测配置
+    detection_config = DetectionConfig.from_yaml(config_path)
 
-    # Create config objects from loaded data
-    detection_data = config_data.get("detection", {})
-    web_data = config_data.get("web", {})
-
-    detection_config = DetectionConfig(**detection_data)
-    web_config = WebConfig(**web_data)
-
-    # Remove detection and web from config_data to avoid duplication
-    app_data = {k: v for k, v in config_data.items() if k not in ["detection", "web"]}
-
-    app_config = AppConfig(detection=detection_config, web=web_config, **app_data)
+    app_config = AppConfig(detection=detection_config, web=WebConfig())
 
     if validate:
         app_config.validate()
 
     return app_config
-
-
-def save_config(config: AppConfig, config_path: Union[str, Path]) -> None:
-    """
-    Save configuration to JSON file.
-
-    Args:
-        config: AppConfig instance to save
-        config_path: Path where to save the configuration
-    """
-    config_path = Path(config_path)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Convert to dictionary for JSON serialization
-    config_dict = asdict(config)
-
-    with config_path.open("w", encoding="utf-8") as f:
-        json.dump(config_dict, f, indent=2, ensure_ascii=False)
-
-
-def load_config_from_env() -> AppConfig:
-    """
-    Load configuration with environment variable overrides.
-
-    Environment variables should be prefixed with FIBERWATCH_
-    and use double underscores for nested keys.
-
-    Example: FIBERWATCH_DETECTION__REFL_MIN_DB=1.5
-
-    Returns:
-        AppConfig with environment overrides applied
-    """
-    config = get_default_config()
-
-    # Process environment variables
-    for key, value in os.environ.items():
-        if not key.startswith("FIBERWATCH_"):
-            continue
-
-        # Remove prefix and split on double underscores
-        config_key = key[11:]  # Remove 'FIBERWATCH_'
-        parts = config_key.lower().split("__")
-
-        if len(parts) == 1:
-            # Top-level config
-            if hasattr(config, parts[0]):
-                _set_config_value(config, parts[0], value)
-        elif len(parts) == 2:
-            # Nested config (detection.* or web.*)
-            section, param = parts
-            if section == "detection" and hasattr(config.detection, param):
-                _set_config_value(config.detection, param, value)
-            elif section == "web" and hasattr(config.web, param):
-                _set_config_value(config.web, param, value)
-
-    return config
-
-
-def _set_config_value(obj: Any, attr: str, value: str) -> None:
-    """
-    Set configuration value with type conversion.
-
-    Args:
-        obj: Object to set attribute on
-        attr: Attribute name
-        value: String value from environment
-    """
-    if not hasattr(obj, attr):
-        return
-
-    current_value = getattr(obj, attr)
-
-    # Convert string value to appropriate type
-    if isinstance(current_value, bool):
-        converted_value = value.lower() in ("true", "1", "yes", "on")
-    elif isinstance(current_value, int):
-        converted_value = int(value)
-    elif isinstance(current_value, float):
-        converted_value = float(value)
-    elif isinstance(current_value, list):
-        converted_value = value.split(",")
-    else:
-        converted_value = value
-
-    setattr(obj, attr, converted_value)
